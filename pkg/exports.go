@@ -15,5 +15,4 @@ func DeleteTask(db *sql.DB, id int) error                         { return delet
 func FindActionableDB(db *sql.DB) (Task, bool, error)             { return findActionableDB(db) }
 func BoolToInt(b bool) int                                        { return boolToInt(b) }
 func Slugify(s string) string                                     { return slugify(s) }
-func MigrateFromJSON(dir string, db *sql.DB)                      { migrateFromJSON(dir, db) }
 func ScanTask(row *sql.Row) (Task, error)                         { return scanTask(row) }

@@ -44,8 +44,6 @@ func (a *App) Startup(ctx context.Context) {
 		}
 	}
 
-	MigrateFromJSON(a.workDir, a.db)
-
 	a.emitTasks()
 	go a.runLoop()
 }
@@ -183,7 +181,6 @@ func (a *App) changeWorkDir(dir string) error {
 		return err
 	}
 	a.db = db
-	MigrateFromJSON(abs, db)
 
 	a.emitTasks()
 	a.log(fmt.Sprintf("[CONFIG] Working directory set to: %s", abs))

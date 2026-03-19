@@ -3,9 +3,7 @@ package pkg
 import (
 	"bufio"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -196,41 +194,6 @@ func findActionableDB(db *sql.DB) (Task, bool, error) {
 		return Task{}, false, nil
 	}
 	return t, err == nil, err
-}
-
-// ── JSON Migration ─────────────────────────────────────────────────────────────
-
-func migrateFromJSON(dir string, db *sql.DB) {
-	jsonPath := filepath.Join(dir, "KANBAN.json")
-	data, err := os.ReadFile(jsonPath)
-	if err != nil {
-		return // no JSON file, nothing to migrate
-	}
-	var tasks []Task
-	if err := json.Unmarshal(data, &tasks); err != nil {
-		return
-	}
-	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM tasks`).Scan(&count)
-	if count > 0 {
-		os.Rename(jsonPath, jsonPath+".bak")
-		return
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return
-	}
-	for _, t := range tasks {
-		tx.Exec(
-			`INSERT INTO tasks (id, title, prompt, spec, branch, pr_url, status, approved) VALUES (?,?,?,?,?,?,?,?)`,
-			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.PRURL, t.Status, boolToInt(t.Approved),
-		)
-	}
-	if err := tx.Commit(); err != nil {
-		tx.Rollback()
-		return
-	}
-	os.Rename(jsonPath, jsonPath+".bak")
 }
 
 // ── Lane Handlers ─────────────────────────────────────────────────────────────

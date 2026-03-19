@@ -2,9 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -213,70 +210,6 @@ func TestFindActionableDB_SkipsNonActionableStatuses(t *testing.T) {
 	}
 	if found {
 		t.Error("expected no actionable tasks for non-actionable statuses")
-	}
-}
-
-func TestMigrateFromJSON(t *testing.T) {
-	dir := t.TempDir()
-
-	tasks := []pkg.Task{
-		{ID: 1, Title: "Migrate me", Prompt: "P", Status: "prompt", Approved: false},
-		{ID: 2, Title: "And me", Prompt: "Q", Status: "spec", Approved: false},
-	}
-	data, _ := json.Marshal(tasks)
-	jsonPath := filepath.Join(dir, "KANBAN.json")
-	os.WriteFile(jsonPath, data, 0644)
-
-	db, err := pkg.OpenDB(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	pkg.MigrateFromJSON(dir, db)
-
-	// JSON should be renamed to .bak
-	if _, err := os.Stat(jsonPath); !os.IsNotExist(err) {
-		t.Error("KANBAN.json should have been renamed to .bak")
-	}
-	if _, err := os.Stat(jsonPath + ".bak"); err != nil {
-		t.Error("KANBAN.json.bak should exist")
-	}
-
-	// Tasks should be in DB
-	loaded, _ := pkg.LoadTasks(db)
-	if len(loaded) != 2 {
-		t.Fatalf("expected 2 migrated tasks, got %d", len(loaded))
-	}
-	if loaded[0].Title != "Migrate me" || loaded[1].Title != "And me" {
-		t.Errorf("unexpected tasks: %+v", loaded)
-	}
-}
-
-func TestMigrateFromJSON_NoDoubleImport(t *testing.T) {
-	dir := t.TempDir()
-
-	tasks := []pkg.Task{{ID: 1, Title: "One", Status: "prompt"}}
-	data, _ := json.Marshal(tasks)
-	jsonPath := filepath.Join(dir, "KANBAN.json")
-	os.WriteFile(jsonPath, data, 0644)
-
-	db, _ := pkg.OpenDB(dir)
-	defer db.Close()
-
-	// Pre-populate DB
-	pkg.InsertTask(db, pkg.Task{Title: "Existing", Status: "prompt"})
-
-	pkg.MigrateFromJSON(dir, db)
-
-	loaded, _ := pkg.LoadTasks(db)
-	// Only the pre-existing task should be there
-	if len(loaded) != 1 || loaded[0].Title != "Existing" {
-		t.Errorf("double import occurred: %+v", loaded)
-	}
-	// JSON should still be renamed to .bak
-	if _, err := os.Stat(jsonPath + ".bak"); err != nil {
-		t.Error("KANBAN.json.bak should exist even when DB not empty")
 	}
 }
 
