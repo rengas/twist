@@ -267,6 +267,61 @@ func TestConcurrentWrites(t *testing.T) {
 	}
 }
 
+func TestGetSetting_MissingKey(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	val, err := getSetting(db, "nonexistent")
+	if err != nil {
+		t.Fatalf("getSetting: %v", err)
+	}
+	if val != "" {
+		t.Errorf("expected empty string for missing key, got %q", val)
+	}
+}
+
+func TestSetAndGetSetting(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	if err := setSetting(db, "workDir", "/tmp/project"); err != nil {
+		t.Fatalf("setSetting: %v", err)
+	}
+
+	val, err := getSetting(db, "workDir")
+	if err != nil {
+		t.Fatalf("getSetting: %v", err)
+	}
+	if val != "/tmp/project" {
+		t.Errorf("expected /tmp/project, got %q", val)
+	}
+}
+
+func TestSetSetting_Upsert(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	setSetting(db, "workDir", "/tmp/first")
+	if err := setSetting(db, "workDir", "/tmp/second"); err != nil {
+		t.Fatalf("setSetting upsert: %v", err)
+	}
+
+	val, _ := getSetting(db, "workDir")
+	if val != "/tmp/second" {
+		t.Errorf("expected upserted value /tmp/second, got %q", val)
+	}
+}
+
+func TestOpenDB_CreatesSettingsTable(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM settings`).Scan(&count); err != nil {
+		t.Fatalf("settings table not created: %v", err)
+	}
+}
+
 func TestBoolToInt(t *testing.T) {
 	if boolToInt(true) != 1 {
 		t.Error("boolToInt(true) should be 1")

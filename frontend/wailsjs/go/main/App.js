@@ -14,6 +14,10 @@ export function DeleteTask(arg1) {
   return window['go']['main']['App']['DeleteTask'](arg1);
 }
 
+export function GetSettings() {
+  return window['go']['main']['App']['GetSettings']();
+}
+
 export function GetWorkDir() {
   return window['go']['main']['App']['GetWorkDir']();
 }
@@ -22,6 +26,14 @@ export function LoadTasks() {
   return window['go']['main']['App']['LoadTasks']();
 }
 
-export function SetWorkDir() {
-  return window['go']['main']['App']['SetWorkDir']();
+export function PickDirectory() {
+  return window['go']['main']['App']['PickDirectory']();
+}
+
+export function SaveSettings(arg1) {
+  return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SetWorkDir(arg1) {
+  return window['go']['main']['App']['SetWorkDir'](arg1);
 }

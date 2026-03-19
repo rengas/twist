@@ -8,8 +8,14 @@ export function ApproveTask(arg1:number):Promise<void>;
 
 export function DeleteTask(arg1:number):Promise<void>;
 
+export function GetSettings():Promise<Record<string, string>>;
+
 export function GetWorkDir():Promise<string>;
 
 export function LoadTasks():Promise<Array<main.Task>>;
 
-export function SetWorkDir():Promise<string>;
+export function PickDirectory():Promise<string>;
+
+export function SaveSettings(arg1:Record<string, string>):Promise<void>;
+
+export function SetWorkDir(arg1:string):Promise<void>;
