@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL DEFAULT ''
 );`
 
-func openDB(dir string) (*sql.DB, error) {
+func OpenDB(dir string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dbPath(dir))
 	if err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func createSchema(db *sql.DB) error {
 	return nil
 }
 
-func getSetting(db *sql.DB, key string) (string, error) {
+func GetSetting(db *sql.DB, key string) (string, error) {
 	var value string
 	err := db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
 	if err == sql.ErrNoRows {
@@ -107,7 +107,7 @@ func getSetting(db *sql.DB, key string) (string, error) {
 	return value, err
 }
 
-func setSetting(db *sql.DB, key, value string) error {
+func SetSetting(db *sql.DB, key, value string) error {
 	_, err := db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)`, key, value)
 	return err
 }
