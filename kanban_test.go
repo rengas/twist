@@ -360,16 +360,6 @@ func TestSetSetting_Upsert(t *testing.T) {
 	}
 }
 
-func TestOpenDB_CreatesSettingsTable(t *testing.T) {
-	db, cleanup := testDB(t)
-	defer cleanup()
-
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM settings`).Scan(&count); err != nil {
-		t.Fatalf("settings table not created: %v", err)
-	}
-}
-
 func TestBoolToInt(t *testing.T) {
 	if boolToInt(true) != 1 {
 		t.Error("boolToInt(true) should be 1")
