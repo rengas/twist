@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, watch } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { GetSettings, SaveSettings, PickDirectory } from '../../wailsjs/go/main/App'
 
 const props = defineProps({
@@ -8,17 +8,18 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'saved'])
 
 const draft = reactive({ workDir: '' })
-const error = reactive({ message: '' })
+const errorMsg = ref('')
+const saving = ref(false)
 
 // Load current settings whenever the modal opens.
 watch(() => props.modelValue, async (open) => {
   if (open) {
-    error.message = ''
+    errorMsg.value = ''
     try {
       const settings = await GetSettings()
       draft.workDir = settings.workDir ?? ''
     } catch (e) {
-      error.message = String(e)
+      errorMsg.value = String(e)
     }
   }
 })
@@ -30,18 +31,21 @@ async function browse() {
       draft.workDir = chosen
     }
   } catch (e) {
-    error.message = String(e)
+    errorMsg.value = String(e)
   }
 }
 
 async function save() {
-  error.message = ''
+  saving.value = true
+  errorMsg.value = ''
   try {
     await SaveSettings({ workDir: draft.workDir })
     emit('saved')
     emit('update:modelValue', false)
   } catch (e) {
-    error.message = String(e)
+    errorMsg.value = String(e)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -106,7 +110,7 @@ function onKeydown(e) {
 
           <!-- Future sections slot here -->
 
-          <p v-if="error.message" class="text-xs text-red-400">{{ error.message }}</p>
+          <p v-if="errorMsg" class="text-xs text-red-400">{{ errorMsg }}</p>
         </div>
 
         <!-- Footer -->
@@ -115,8 +119,13 @@ function onKeydown(e) {
                   class="px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
             Cancel
           </button>
-          <button @click="save"
-                  class="px-4 py-2 text-xs rounded-lg font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors">
+          <button @click="save" :disabled="saving"
+                  class="flex items-center gap-2 px-4 py-2 text-xs rounded-lg font-semibold
+                         bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50">
+            <svg v-if="saving" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 000 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
+            </svg>
             Save
           </button>
         </div>
