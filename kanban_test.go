@@ -35,6 +35,54 @@ func TestOpenDB_CreatesSchema(t *testing.T) {
 	}
 }
 
+func TestOpenDB_CreatesSettingsTable(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM settings`).Scan(&count); err != nil {
+		t.Fatalf("settings table not created: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 rows in settings, got %d", count)
+	}
+}
+
+func TestGetSetSetting(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	// Missing key returns empty string, no error.
+	val, err := getSetting(db, "missing")
+	if err != nil {
+		t.Fatalf("getSetting on missing key: %v", err)
+	}
+	if val != "" {
+		t.Errorf("expected empty string for missing key, got %q", val)
+	}
+
+	// Set a value and read it back.
+	if err := setSetting(db, "workDir", "/tmp/project"); err != nil {
+		t.Fatalf("setSetting: %v", err)
+	}
+	val, err = getSetting(db, "workDir")
+	if err != nil {
+		t.Fatalf("getSetting: %v", err)
+	}
+	if val != "/tmp/project" {
+		t.Errorf("expected %q, got %q", "/tmp/project", val)
+	}
+
+	// Upsert overwrites the previous value.
+	if err := setSetting(db, "workDir", "/home/user"); err != nil {
+		t.Fatalf("setSetting upsert: %v", err)
+	}
+	val, _ = getSetting(db, "workDir")
+	if val != "/home/user" {
+		t.Errorf("upsert: expected %q, got %q", "/home/user", val)
+	}
+}
+
 func TestInsertAndLoadTasks(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
@@ -266,6 +314,51 @@ func TestConcurrentWrites(t *testing.T) {
 	}
 	if len(tasks) != 20 {
 		t.Errorf("expected 20 tasks from concurrent inserts, got %d", len(tasks))
+	}
+}
+
+func TestGetSetting_MissingKey(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	val, err := getSetting(db, "nonexistent")
+	if err != nil {
+		t.Fatalf("getSetting: %v", err)
+	}
+	if val != "" {
+		t.Errorf("expected empty string for missing key, got %q", val)
+	}
+}
+
+func TestSetAndGetSetting(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	if err := setSetting(db, "workDir", "/tmp/project"); err != nil {
+		t.Fatalf("setSetting: %v", err)
+	}
+
+	val, err := getSetting(db, "workDir")
+	if err != nil {
+		t.Fatalf("getSetting: %v", err)
+	}
+	if val != "/tmp/project" {
+		t.Errorf("expected /tmp/project, got %q", val)
+	}
+}
+
+func TestSetSetting_Upsert(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	setSetting(db, "workDir", "/tmp/first")
+	if err := setSetting(db, "workDir", "/tmp/second"); err != nil {
+		t.Fatalf("setSetting upsert: %v", err)
+	}
+
+	val, _ := getSetting(db, "workDir")
+	if val != "/tmp/second" {
+		t.Errorf("expected upserted value /tmp/second, got %q", val)
 	}
 }
 

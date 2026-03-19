@@ -1,4 +1,4 @@
-package pkg
+package main
 
 import (
 	"context"
@@ -25,16 +25,26 @@ func NewApp() *App {
 	return &App{workDir: dir}
 }
 
-func (a *App) Startup(ctx context.Context) {
+func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	db, err := OpenDB(a.workDir)
+	db, err := openDB(a.workDir)
 	if err != nil {
 		a.log(fmt.Sprintf("[ERROR] Failed to open DB: %v", err))
 		return
 	}
 	a.db = db
-	MigrateFromJSON(a.workDir, db)
+
+	// Load persisted working directory; if valid and different, switch to saved project DB.
+	if saved, err := getSetting(db, "workDir"); err == nil && saved != "" && saved != a.workDir {
+		if newDB, err := openDB(saved); err == nil {
+			db.Close()
+			a.db = newDB
+			a.workDir = saved
+		}
+	}
+
+	migrateFromJSON(a.workDir, a.db)
 
 	a.emitTasks()
 	go a.runLoop()
@@ -47,7 +57,7 @@ func (a *App) LoadTasks() []Task {
 	if a.db == nil {
 		return []Task{}
 	}
-	tasks, err := LoadTasks(a.db)
+	tasks, err := loadTasks(a.db)
 	if err != nil {
 		a.log(fmt.Sprintf("[ERROR] %v", err))
 		return []Task{}
@@ -63,7 +73,7 @@ func (a *App) AddTask(title, prompt string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not initialised")
 	}
-	_, err := InsertTask(a.db, Task{
+	_, err := insertTask(a.db, Task{
 		Title:    title,
 		Prompt:   prompt,
 		Status:   "prompt",
@@ -104,7 +114,7 @@ func (a *App) ApproveTask(id int) error {
 		newStatus = "done"
 	}
 
-	if err := UpdateTaskStatus(a.db, id, newStatus, true); err != nil {
+	if err := updateTaskStatus(a.db, id, newStatus, true); err != nil {
 		return err
 	}
 	a.emitTasks()
@@ -116,7 +126,7 @@ func (a *App) DeleteTask(id int) error {
 	if a.db == nil {
 		return fmt.Errorf("database not initialised")
 	}
-	if err := DeleteTask(a.db, id); err != nil {
+	if err := deleteTask(a.db, id); err != nil {
 		return err
 	}
 	a.emitTasks()
@@ -128,20 +138,35 @@ func (a *App) GetWorkDir() string {
 	return a.workDir
 }
 
-// SetWorkDir opens a directory picker and sets the working directory.
-func (a *App) SetWorkDir() (string, error) {
+// PickDirectory opens the native OS directory picker and returns the chosen path
+// without changing any application state. The caller decides whether to apply it.
+func (a *App) PickDirectory() (string, error) {
 	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:                "Select project directory",
+		Title:                "Select Project Directory",
 		DefaultDirectory:     a.workDir,
 		CanCreateDirectories: true,
 	})
-	if err != nil || dir == "" {
-		return a.workDir, nil
+	if err != nil {
+		return "", err
 	}
+	return dir, nil
+}
 
+// SetWorkDir changes the working directory to the provided path.
+// It is also exposed as an IPC method for direct path setting.
+func (a *App) SetWorkDir(path string) error {
+	if path == "" {
+		return nil
+	}
+	return a.changeWorkDir(path)
+}
+
+// changeWorkDir switches the app to a new working directory: updates a.workDir,
+// reopens the database, and emits updated tasks.
+func (a *App) changeWorkDir(dir string) error {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return a.workDir, err
+		return err
 	}
 
 	a.mu.Lock()
@@ -151,16 +176,50 @@ func (a *App) SetWorkDir() (string, error) {
 	if a.db != nil {
 		a.db.Close()
 	}
-	db, err := OpenDB(abs)
+	db, err := openDB(abs)
 	if err != nil {
-		return abs, err
+		return err
 	}
 	a.db = db
-	MigrateFromJSON(abs, db)
+	migrateFromJSON(abs, db)
 
 	a.emitTasks()
 	a.log(fmt.Sprintf("[CONFIG] Working directory set to: %s", abs))
-	return abs, nil
+	return nil
+}
+
+// GetSettings returns all user-configurable settings as a map.
+func (a *App) GetSettings() (map[string]string, error) {
+	result := map[string]string{
+		"workDir": a.workDir,
+	}
+	return result, nil
+}
+
+// SaveSettings persists the provided key/value pairs and applies any settings
+// that require runtime side-effects (e.g., workDir change).
+func (a *App) SaveSettings(settings map[string]string) error {
+	if a.db == nil {
+		return fmt.Errorf("database not initialised")
+	}
+
+	oldWorkDir := a.workDir
+
+	// Persist each setting to the current DB before potentially switching.
+	for key, value := range settings {
+		if err := setSetting(a.db, key, value); err != nil {
+			return err
+		}
+	}
+
+	// Apply workDir change if it differs from the current value.
+	if newDir, ok := settings["workDir"]; ok && newDir != "" && newDir != oldWorkDir {
+		if err := a.changeWorkDir(newDir); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // ── Background Loop ───────────────────────────────────────────────────────────
@@ -177,7 +236,7 @@ func (a *App) runLoop() {
 		dir := a.workDir
 		a.mu.Unlock()
 
-		task, found, err := FindActionableDB(a.db)
+		task, found, err := findActionableDB(a.db)
 		if err != nil {
 			a.log(fmt.Sprintf("[ERROR] %v", err))
 			continue
@@ -213,7 +272,7 @@ func (a *App) emitTasks() {
 	var tasks []Task
 	if a.db != nil {
 		var err error
-		tasks, err = LoadTasks(a.db)
+		tasks, err = loadTasks(a.db)
 		if err != nil {
 			tasks = []Task{}
 		}

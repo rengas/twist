@@ -1,4 +1,4 @@
-package pkg
+package main
 
 import (
 	"bufio"
@@ -11,9 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-import (
 	_ "modernc.org/sqlite"
 )
 
@@ -57,7 +55,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     approved INTEGER NOT NULL DEFAULT 0
 );`
 
-func OpenDB(dir string) (*sql.DB, error) {
+const settingsSchema = `
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);`
+
+func openDB(dir string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dbPath(dir))
 	if err != nil {
 		return nil, err
@@ -81,7 +85,24 @@ func OpenDB(dir string) (*sql.DB, error) {
 }
 
 func createSchema(db *sql.DB) error {
-	_, err := db.Exec(schema)
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	_, err := db.Exec(settingsSchema)
+	return err
+}
+
+func getSetting(db *sql.DB, key string) (string, error) {
+	var value string
+	err := db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+func setSetting(db *sql.DB, key, value string) error {
+	_, err := db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)`, key, value)
 	return err
 }
 
@@ -93,7 +114,7 @@ func scanTask(row *sql.Row) (Task, error) {
 	return t, err
 }
 
-func LoadTasks(db *sql.DB) ([]Task, error) {
+func loadTasks(db *sql.DB) ([]Task, error) {
 	rows, err := db.Query(`SELECT id, title, prompt, spec, branch, status, approved FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -112,10 +133,10 @@ func LoadTasks(db *sql.DB) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
-func InsertTask(db *sql.DB, t Task) (int64, error) {
+func insertTask(db *sql.DB, t Task) (int64, error) {
 	res, err := db.Exec(
 		`INSERT INTO tasks (title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?)`,
-		t.Title, t.Prompt, t.Spec, t.Branch, t.Status, BoolToInt(t.Approved),
+		t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
 	)
 	if err != nil {
 		return 0, err
@@ -123,37 +144,37 @@ func InsertTask(db *sql.DB, t Task) (int64, error) {
 	return res.LastInsertId()
 }
 
-func UpdateTaskStatus(db *sql.DB, id int, status string, approved bool) error {
+func updateTaskStatus(db *sql.DB, id int, status string, approved bool) error {
 	_, err := db.Exec(
 		`UPDATE tasks SET status=?, approved=? WHERE id=?`,
-		status, BoolToInt(approved), id,
+		status, boolToInt(approved), id,
 	)
 	return err
 }
 
-func UpdateTaskSpec(db *sql.DB, id int, spec string) error {
+func updateTaskSpec(db *sql.DB, id int, spec string) error {
 	_, err := db.Exec(`UPDATE tasks SET spec=? WHERE id=?`, spec, id)
 	return err
 }
 
-func UpdateTaskBranch(db *sql.DB, id int, branch string) error {
+func updateTaskBranch(db *sql.DB, id int, branch string) error {
 	_, err := db.Exec(`UPDATE tasks SET branch=? WHERE id=?`, branch, id)
 	return err
 }
 
-func DeleteTask(db *sql.DB, id int) error {
+func deleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec(`DELETE FROM tasks WHERE id=?`, id)
 	return err
 }
 
-func BoolToInt(b bool) int {
+func boolToInt(b bool) int {
 	if b {
 		return 1
 	}
 	return 0
 }
 
-func FindActionableDB(db *sql.DB) (Task, bool, error) {
+func findActionableDB(db *sql.DB) (Task, bool, error) {
 	row := db.QueryRow(
 		`SELECT id, title, prompt, spec, branch, status, approved FROM tasks
          WHERE approved=1 AND status IN ('prompt','code','done')
@@ -168,7 +189,7 @@ func FindActionableDB(db *sql.DB) (Task, bool, error) {
 
 // ── JSON Migration ─────────────────────────────────────────────────────────────
 
-func MigrateFromJSON(dir string, db *sql.DB) {
+func migrateFromJSON(dir string, db *sql.DB) {
 	jsonPath := filepath.Join(dir, "KANBAN.json")
 	data, err := os.ReadFile(jsonPath)
 	if err != nil {
@@ -191,7 +212,7 @@ func MigrateFromJSON(dir string, db *sql.DB) {
 	for _, t := range tasks {
 		tx.Exec(
 			`INSERT INTO tasks (id, title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?,?)`,
-			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.Status, BoolToInt(t.Approved),
+			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
 		)
 	}
 	if err := tx.Commit(); err != nil {
@@ -225,10 +246,10 @@ Return ONLY the markdown spec, no other commentary.`, task.Prompt)
 		return fmt.Errorf("spec generation failed for task #%d: %v", task.ID, err)
 	}
 
-	if err := UpdateTaskSpec(db, task.ID, strings.TrimSpace(spec)); err != nil {
+	if err := updateTaskSpec(db, task.ID, strings.TrimSpace(spec)); err != nil {
 		return err
 	}
-	if err := UpdateTaskStatus(db, task.ID, "spec", false); err != nil {
+	if err := updateTaskStatus(db, task.ID, "spec", false); err != nil {
 		return err
 	}
 
@@ -240,7 +261,7 @@ Return ONLY the markdown spec, no other commentary.`, task.Prompt)
 func handleCode(task Task, workDir string, db *sql.DB, log LogFunc) error {
 	log(fmt.Sprintf("[CODE] Task #%d: Implementing — %s", task.ID, task.Title))
 
-	branch := fmt.Sprintf("feature/task-%d-%s", task.ID, Slugify(task.Title))
+	branch := fmt.Sprintf("feature/task-%d-%s", task.ID, slugify(task.Title))
 
 	log(fmt.Sprintf("[GIT] Creating branch: %s", branch))
 	if _, err := gitCmd(workDir, "checkout", "-b", branch); err != nil {
@@ -249,7 +270,7 @@ func handleCode(task Task, workDir string, db *sql.DB, log LogFunc) error {
 		}
 	}
 
-	if err := UpdateTaskBranch(db, task.ID, branch); err != nil {
+	if err := updateTaskBranch(db, task.ID, branch); err != nil {
 		return err
 	}
 
@@ -265,11 +286,11 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 	if err := runClaudeStream(task.ID, prompt, workDir, log); err != nil {
 		log(fmt.Sprintf("[FAILED] Task #%d implementation error: %v", task.ID, err))
 		log("         Fix the issue manually, then set status → 'code' + approved → true to retry.")
-		_ = UpdateTaskStatus(db, task.ID, "failed", false)
+		_ = updateTaskStatus(db, task.ID, "failed", false)
 		return nil
 	}
 
-	if err := UpdateTaskStatus(db, task.ID, "review", false); err != nil {
+	if err := updateTaskStatus(db, task.ID, "review", false); err != nil {
 		return err
 	}
 
@@ -299,7 +320,7 @@ func handleDone(task Task, workDir string, db *sql.DB, log LogFunc) error {
 
 	log(fmt.Sprintf("[PR RAISED] %s", strings.TrimSpace(out)))
 
-	if err := UpdateTaskStatus(db, task.ID, "complete", false); err != nil {
+	if err := updateTaskStatus(db, task.ID, "complete", false); err != nil {
 		return err
 	}
 
@@ -434,7 +455,7 @@ func ghCmd(workDir string, args ...string) (string, error) {
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
-func Slugify(s string) string {
+func slugify(s string) string {
 	s = strings.ToLower(s)
 	var b strings.Builder
 	for _, r := range s {
