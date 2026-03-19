@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { marked } from 'marked'
-import { ApproveTask, DeleteTask } from '../../wailsjs/go/main/App'
+import { ApproveTask, DeleteTask } from '../../wailsjs/go/pkg/App'
 
 const props = defineProps({ task: Object })
 const emit = defineEmits(['close'])

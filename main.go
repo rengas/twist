@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 
+	"github.com/rengas/twist/pkg"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -13,7 +14,7 @@ import (
 var assets embed.FS
 
 func main() {
-	app := NewApp()
+	app := pkg.NewApp()
 
 	err := wails.Run(&options.App{
 		Title:            "twist",
@@ -25,7 +26,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup: app.startup,
+		OnStartup: app.Startup,
 		Bind: []interface{}{
 			app,
 		},
