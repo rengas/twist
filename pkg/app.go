@@ -44,7 +44,7 @@ func (a *App) Startup(ctx context.Context) {
 		}
 	}
 
-	migrateFromJSON(a.workDir, a.db)
+	MigrateFromJSON(a.workDir, a.db)
 
 	a.emitTasks()
 	go a.runLoop()
