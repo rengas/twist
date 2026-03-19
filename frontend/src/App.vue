@@ -73,14 +73,6 @@ onUnmounted(() => {
 
       <!-- Right: Actions -->
       <div class="flex items-center justify-end gap-3" style="--wails-draggable: no-drag">
-        <div class="flex items-center gap-1.5 text-xs text-slate-500 px-2 py-1"
-             :title="workDir">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M3 7a2 2 0 012-2h3.586a1 1 0 01.707.293L10.414 6.5A1 1 0 0011.12 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
-          </svg>
-          <span class="max-w-[200px] truncate">{{ workDir.split('/').pop() || workDir }}</span>
-        </div>
         <button @click="showSettings = true"
                 class="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
                 title="Settings">
