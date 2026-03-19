@@ -16,9 +16,9 @@ import (
 )
 
 // Task represents a card on the Kanban board.
-// Status flow: prompt → spec → code → review → done → complete
+// Status flow: prompt → spec → code → review → done
 //
-//	(agent)       (user)  (agent)  (user) (agent)
+//	(agent)       (user)  (agent+PR)  (user) (terminal)
 //
 // The agent only acts when Approved is true. After each agent action it resets
 // Approved to false so the user must explicitly re-approve the next stage.
@@ -28,7 +28,8 @@ type Task struct {
 	Prompt   string `json:"prompt"`   // user writes this
 	Spec     string `json:"spec"`     // agent writes this
 	Branch   string `json:"branch"`   // agent sets this
-	Status   string `json:"status"`   // prompt | spec | code | review | done | complete | failed
+	PRURL    string `json:"pr_url"`   // agent sets this after code phase
+	Status   string `json:"status"`   // prompt | spec | code | review | done | failed
 	Approved bool   `json:"approved"` // user sets true to let agent act; agent resets to false after each stage
 }
 
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     prompt   TEXT    NOT NULL DEFAULT '',
     spec     TEXT    NOT NULL DEFAULT '',
     branch   TEXT    NOT NULL DEFAULT '',
+    pr_url   TEXT    NOT NULL DEFAULT '',
     status   TEXT    NOT NULL DEFAULT 'prompt',
     approved INTEGER NOT NULL DEFAULT 0
 );`
@@ -88,8 +90,12 @@ func createSchema(db *sql.DB) error {
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
-	_, err := db.Exec(settingsSchema)
-	return err
+	if _, err := db.Exec(settingsSchema); err != nil {
+		return err
+	}
+	// Migration: add pr_url column for existing databases that lack it.
+	db.Exec(`ALTER TABLE tasks ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 func getSetting(db *sql.DB, key string) (string, error) {
@@ -109,13 +115,13 @@ func setSetting(db *sql.DB, key, value string) error {
 func scanTask(row *sql.Row) (Task, error) {
 	var t Task
 	var approved int
-	err := row.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.Status, &approved)
+	err := row.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL, &t.Status, &approved)
 	t.Approved = approved == 1
 	return t, err
 }
 
 func loadTasks(db *sql.DB) ([]Task, error) {
-	rows, err := db.Query(`SELECT id, title, prompt, spec, branch, status, approved FROM tasks ORDER BY id`)
+	rows, err := db.Query(`SELECT id, title, prompt, spec, branch, pr_url, status, approved FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +130,7 @@ func loadTasks(db *sql.DB) ([]Task, error) {
 	for rows.Next() {
 		var t Task
 		var approved int
-		if err := rows.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.Status, &approved); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL, &t.Status, &approved); err != nil {
 			return nil, err
 		}
 		t.Approved = approved == 1
@@ -135,8 +141,8 @@ func loadTasks(db *sql.DB) ([]Task, error) {
 
 func insertTask(db *sql.DB, t Task) (int64, error) {
 	res, err := db.Exec(
-		`INSERT INTO tasks (title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?)`,
-		t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
+		`INSERT INTO tasks (title, prompt, spec, branch, pr_url, status, approved) VALUES (?,?,?,?,?,?,?)`,
+		t.Title, t.Prompt, t.Spec, t.Branch, t.PRURL, t.Status, boolToInt(t.Approved),
 	)
 	if err != nil {
 		return 0, err
@@ -162,6 +168,11 @@ func updateTaskBranch(db *sql.DB, id int, branch string) error {
 	return err
 }
 
+func updateTaskPRURL(db *sql.DB, id int, prURL string) error {
+	_, err := db.Exec(`UPDATE tasks SET pr_url=? WHERE id=?`, prURL, id)
+	return err
+}
+
 func deleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec(`DELETE FROM tasks WHERE id=?`, id)
 	return err
@@ -176,8 +187,8 @@ func boolToInt(b bool) int {
 
 func findActionableDB(db *sql.DB) (Task, bool, error) {
 	row := db.QueryRow(
-		`SELECT id, title, prompt, spec, branch, status, approved FROM tasks
-         WHERE approved=1 AND status IN ('prompt','code','done')
+		`SELECT id, title, prompt, spec, branch, pr_url, status, approved FROM tasks
+         WHERE approved=1 AND status IN ('prompt','code')
          ORDER BY id LIMIT 1`,
 	)
 	t, err := scanTask(row)
@@ -211,8 +222,8 @@ func migrateFromJSON(dir string, db *sql.DB) {
 	}
 	for _, t := range tasks {
 		tx.Exec(
-			`INSERT INTO tasks (id, title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?,?)`,
-			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
+			`INSERT INTO tasks (id, title, prompt, spec, branch, pr_url, status, approved) VALUES (?,?,?,?,?,?,?,?)`,
+			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.PRURL, t.Status, boolToInt(t.Approved),
 		)
 	}
 	if err := tx.Commit(); err != nil {

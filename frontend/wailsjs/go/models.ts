@@ -6,6 +6,7 @@ export namespace pkg {
 	    prompt: string;
 	    spec: string;
 	    branch: string;
+	    pr_url: string;
 	    status: string;
 	    approved: boolean;
 	
@@ -20,6 +21,7 @@ export namespace pkg {
 	        this.prompt = source["prompt"];
 	        this.spec = source["spec"];
 	        this.branch = source["branch"];
+	        this.pr_url = source["pr_url"];
 	        this.status = source["status"];
 	        this.approved = source["approved"];
 	    }
