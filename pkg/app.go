@@ -57,7 +57,7 @@ func (a *App) LoadTasks() []Task {
 	if a.db == nil {
 		return []Task{}
 	}
-	tasks, err := loadTasks(a.db)
+	tasks, err := LoadTasks(a.db)
 	if err != nil {
 		a.log(fmt.Sprintf("[ERROR] %v", err))
 		return []Task{}
@@ -272,7 +272,7 @@ func (a *App) emitTasks() {
 	var tasks []Task
 	if a.db != nil {
 		var err error
-		tasks, err = loadTasks(a.db)
+		tasks, err = LoadTasks(a.db)
 		if err != nil {
 			tasks = []Task{}
 		}
