@@ -1,4 +1,4 @@
-module twist
+module github.com/rengas/twist
 
 go 1.25.0
 

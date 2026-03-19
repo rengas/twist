@@ -1,4 +1,4 @@
-export namespace main {
+export namespace pkg {
 	
 	export class Task {
 	    id: number;

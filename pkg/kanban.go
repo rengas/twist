@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"bufio"
@@ -11,7 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
 
+import (
 	_ "modernc.org/sqlite"
 )
 
@@ -55,7 +57,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     approved INTEGER NOT NULL DEFAULT 0
 );`
 
-func openDB(dir string) (*sql.DB, error) {
+func OpenDB(dir string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dbPath(dir))
 	if err != nil {
 		return nil, err
@@ -91,7 +93,7 @@ func scanTask(row *sql.Row) (Task, error) {
 	return t, err
 }
 
-func loadTasks(db *sql.DB) ([]Task, error) {
+func LoadTasks(db *sql.DB) ([]Task, error) {
 	rows, err := db.Query(`SELECT id, title, prompt, spec, branch, status, approved FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -110,10 +112,10 @@ func loadTasks(db *sql.DB) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
-func insertTask(db *sql.DB, t Task) (int64, error) {
+func InsertTask(db *sql.DB, t Task) (int64, error) {
 	res, err := db.Exec(
 		`INSERT INTO tasks (title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?)`,
-		t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
+		t.Title, t.Prompt, t.Spec, t.Branch, t.Status, BoolToInt(t.Approved),
 	)
 	if err != nil {
 		return 0, err
@@ -121,37 +123,37 @@ func insertTask(db *sql.DB, t Task) (int64, error) {
 	return res.LastInsertId()
 }
 
-func updateTaskStatus(db *sql.DB, id int, status string, approved bool) error {
+func UpdateTaskStatus(db *sql.DB, id int, status string, approved bool) error {
 	_, err := db.Exec(
 		`UPDATE tasks SET status=?, approved=? WHERE id=?`,
-		status, boolToInt(approved), id,
+		status, BoolToInt(approved), id,
 	)
 	return err
 }
 
-func updateTaskSpec(db *sql.DB, id int, spec string) error {
+func UpdateTaskSpec(db *sql.DB, id int, spec string) error {
 	_, err := db.Exec(`UPDATE tasks SET spec=? WHERE id=?`, spec, id)
 	return err
 }
 
-func updateTaskBranch(db *sql.DB, id int, branch string) error {
+func UpdateTaskBranch(db *sql.DB, id int, branch string) error {
 	_, err := db.Exec(`UPDATE tasks SET branch=? WHERE id=?`, branch, id)
 	return err
 }
 
-func deleteTask(db *sql.DB, id int) error {
+func DeleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec(`DELETE FROM tasks WHERE id=?`, id)
 	return err
 }
 
-func boolToInt(b bool) int {
+func BoolToInt(b bool) int {
 	if b {
 		return 1
 	}
 	return 0
 }
 
-func findActionableDB(db *sql.DB) (Task, bool, error) {
+func FindActionableDB(db *sql.DB) (Task, bool, error) {
 	row := db.QueryRow(
 		`SELECT id, title, prompt, spec, branch, status, approved FROM tasks
          WHERE approved=1 AND status IN ('prompt','code','done')
@@ -166,7 +168,7 @@ func findActionableDB(db *sql.DB) (Task, bool, error) {
 
 // ── JSON Migration ─────────────────────────────────────────────────────────────
 
-func migrateFromJSON(dir string, db *sql.DB) {
+func MigrateFromJSON(dir string, db *sql.DB) {
 	jsonPath := filepath.Join(dir, "KANBAN.json")
 	data, err := os.ReadFile(jsonPath)
 	if err != nil {
@@ -189,7 +191,7 @@ func migrateFromJSON(dir string, db *sql.DB) {
 	for _, t := range tasks {
 		tx.Exec(
 			`INSERT INTO tasks (id, title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?,?)`,
-			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
+			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.Status, BoolToInt(t.Approved),
 		)
 	}
 	if err := tx.Commit(); err != nil {
@@ -223,10 +225,10 @@ Return ONLY the markdown spec, no other commentary.`, task.Prompt)
 		return fmt.Errorf("spec generation failed for task #%d: %v", task.ID, err)
 	}
 
-	if err := updateTaskSpec(db, task.ID, strings.TrimSpace(spec)); err != nil {
+	if err := UpdateTaskSpec(db, task.ID, strings.TrimSpace(spec)); err != nil {
 		return err
 	}
-	if err := updateTaskStatus(db, task.ID, "spec", false); err != nil {
+	if err := UpdateTaskStatus(db, task.ID, "spec", false); err != nil {
 		return err
 	}
 
@@ -238,7 +240,7 @@ Return ONLY the markdown spec, no other commentary.`, task.Prompt)
 func handleCode(task Task, workDir string, db *sql.DB, log LogFunc) error {
 	log(fmt.Sprintf("[CODE] Task #%d: Implementing — %s", task.ID, task.Title))
 
-	branch := fmt.Sprintf("feature/task-%d-%s", task.ID, slugify(task.Title))
+	branch := fmt.Sprintf("feature/task-%d-%s", task.ID, Slugify(task.Title))
 
 	log(fmt.Sprintf("[GIT] Creating branch: %s", branch))
 	if _, err := gitCmd(workDir, "checkout", "-b", branch); err != nil {
@@ -247,7 +249,7 @@ func handleCode(task Task, workDir string, db *sql.DB, log LogFunc) error {
 		}
 	}
 
-	if err := updateTaskBranch(db, task.ID, branch); err != nil {
+	if err := UpdateTaskBranch(db, task.ID, branch); err != nil {
 		return err
 	}
 
@@ -263,11 +265,11 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 	if err := runClaudeStream(task.ID, prompt, workDir, log); err != nil {
 		log(fmt.Sprintf("[FAILED] Task #%d implementation error: %v", task.ID, err))
 		log("         Fix the issue manually, then set status → 'code' + approved → true to retry.")
-		_ = updateTaskStatus(db, task.ID, "failed", false)
+		_ = UpdateTaskStatus(db, task.ID, "failed", false)
 		return nil
 	}
 
-	if err := updateTaskStatus(db, task.ID, "review", false); err != nil {
+	if err := UpdateTaskStatus(db, task.ID, "review", false); err != nil {
 		return err
 	}
 
@@ -297,7 +299,7 @@ func handleDone(task Task, workDir string, db *sql.DB, log LogFunc) error {
 
 	log(fmt.Sprintf("[PR RAISED] %s", strings.TrimSpace(out)))
 
-	if err := updateTaskStatus(db, task.ID, "complete", false); err != nil {
+	if err := UpdateTaskStatus(db, task.ID, "complete", false); err != nil {
 		return err
 	}
 
@@ -432,7 +434,7 @@ func ghCmd(workDir string, args ...string) (string, error) {
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
-func slugify(s string) string {
+func Slugify(s string) string {
 	s = strings.ToLower(s)
 	var b strings.Builder
 	for _, r := range s {
