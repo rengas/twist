@@ -16,7 +16,7 @@ const renderedSpec = computed(() => {
 
 const canApprove = computed(() => {
   const s = props.task.status
-  return ['prompt', 'spec', 'code', 'review', 'done', 'failed'].includes(s) && !props.task.approved
+  return ['prompt', 'spec', 'code', 'review', 'failed'].includes(s) && !props.task.approved
 })
 
 const approveLabel = computed(() => {
@@ -24,8 +24,7 @@ const approveLabel = computed(() => {
   if (s === 'prompt') return 'Approve — Generate Spec'
   if (s === 'spec')   return 'Approve Spec → Implement'
   if (s === 'code')   return 'Approve — Start Build'
-  if (s === 'review') return 'Approve Code → Raise PR'
-  if (s === 'done')   return 'Approve — Push & PR'
+  if (s === 'review') return 'Approve PR → Done'
   if (s === 'failed') return 'Retry Implementation'
   return 'Approve'
 })
@@ -35,8 +34,7 @@ const statusColor = computed(() => ({
   spec:     'bg-amber-500/30 text-amber-300',
   code:     'bg-sky-500/30 text-sky-300',
   review:   'bg-orange-500/30 text-orange-300',
-  done:     'bg-teal-500/30 text-teal-300',
-  complete: 'bg-emerald-500/30 text-emerald-300',
+  done:     'bg-emerald-500/30 text-emerald-300',
   failed:   'bg-red-500/30 text-red-300',
 }[props.task.status] || 'bg-slate-500/30 text-slate-300'))
 
@@ -89,6 +87,10 @@ async function deleteTask() {
           </div>
           <h2 class="text-base font-semibold text-slate-100 leading-snug">{{ task.title }}</h2>
           <p v-if="task.branch" class="text-xs text-sky-400 font-mono mt-0.5">{{ task.branch }}</p>
+          <a v-if="task.pr_url" :href="task.pr_url" target="_blank"
+             class="text-xs text-blue-400 hover:text-blue-300 underline mt-0.5 inline-block">
+            {{ task.pr_url }}
+          </a>
         </div>
         <button @click="emit('close')"
                 class="text-slate-500 hover:text-slate-300 transition-colors mt-0.5 flex-shrink-0">
@@ -144,13 +146,13 @@ async function deleteTask() {
             {{ approveLabel }}
           </button>
 
-          <span v-else-if="task.approved && task.status !== 'complete'"
+          <span v-else-if="task.approved && task.status !== 'done'"
                 class="text-xs text-emerald-400">
             Agent is working…
           </span>
-          <span v-else-if="task.status === 'complete'"
+          <span v-else-if="task.status === 'done'"
                 class="text-xs text-emerald-400">
-            Complete ✓
+            Done
           </span>
         </div>
       </div>

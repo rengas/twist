@@ -17,7 +17,7 @@ const agentRunning = ref(false)
 async function refresh() {
   tasks.value = await LoadTasks()
   agentRunning.value = tasks.value.some(
-    t => t.approved && (t.status === 'prompt' || t.status === 'code' || t.status === 'done')
+    t => t.approved && (t.status === 'prompt' || t.status === 'code')
   )
 }
 
@@ -33,7 +33,7 @@ onMounted(async () => {
   EventsOn('tasks:updated', (updated) => {
     tasks.value = updated
     agentRunning.value = updated.some(
-      t => t.approved && (t.status === 'prompt' || t.status === 'code' || t.status === 'done')
+      t => t.approved && (t.status === 'prompt' || t.status === 'code')
     )
   })
 

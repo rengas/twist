@@ -13,8 +13,7 @@ const columns = [
   { key: 'spec',     label: 'Spec',     color: 'from-amber-500/20 to-amber-600/10',   badge: 'bg-amber-500/30 text-amber-300',   dot: 'bg-amber-400'   },
   { key: 'code',     label: 'Code',     color: 'from-sky-500/20 to-sky-600/10',       badge: 'bg-sky-500/30 text-sky-300',       dot: 'bg-sky-400'     },
   { key: 'review',   label: 'Review',   color: 'from-orange-500/20 to-orange-600/10', badge: 'bg-orange-500/30 text-orange-300', dot: 'bg-orange-400'  },
-  { key: 'done',     label: 'Done',     color: 'from-teal-500/20 to-teal-600/10',     badge: 'bg-teal-500/30 text-teal-300',     dot: 'bg-teal-400'    },
-  { key: 'complete', label: 'Complete', color: 'from-emerald-500/20 to-emerald-600/10', badge: 'bg-emerald-500/30 text-emerald-300', dot: 'bg-emerald-400' },
+  { key: 'done',     label: 'Done',     color: 'from-emerald-500/20 to-emerald-600/10', badge: 'bg-emerald-500/30 text-emerald-300', dot: 'bg-emerald-400' },
   { key: 'failed',   label: 'Failed',   color: 'from-red-500/20 to-red-600/10',       badge: 'bg-red-500/30 text-red-300',       dot: 'bg-red-400'     },
 ]
 

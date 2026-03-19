@@ -28,7 +28,7 @@ func NewApp() *App {
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
-	db, err := openDB(a.workDir)
+	db, err := OpenDB(a.workDir)
 	if err != nil {
 		a.log(fmt.Sprintf("[ERROR] Failed to open DB: %v", err))
 		return
@@ -36,15 +36,13 @@ func (a *App) Startup(ctx context.Context) {
 	a.db = db
 
 	// Load persisted working directory; if valid and different, switch to saved project DB.
-	if saved, err := getSetting(db, "workDir"); err == nil && saved != "" && saved != a.workDir {
-		if newDB, err := openDB(saved); err == nil {
+	if saved, err := GetSetting(db, "workDir"); err == nil && saved != "" && saved != a.workDir {
+		if newDB, err := OpenDB(saved); err == nil {
 			db.Close()
 			a.db = newDB
 			a.workDir = saved
 		}
 	}
-
-	migrateFromJSON(a.workDir, a.db)
 
 	a.emitTasks()
 	go a.runLoop()
@@ -88,15 +86,15 @@ func (a *App) AddTask(title, prompt string) error {
 
 // ApproveTask sets approved=true on a task and advances status where needed.
 // spec → sets status to "code" and approved to true
-// review → sets status to "done" and approved to true
-// prompt/code/done → just sets approved to true
+// review → sets status to "done" (terminal) and approved to false
+// prompt/code → just sets approved to true
 func (a *App) ApproveTask(id int) error {
 	if a.db == nil {
 		return fmt.Errorf("database not initialised")
 	}
 
 	row := a.db.QueryRow(
-		`SELECT id, title, prompt, spec, branch, status, approved FROM tasks WHERE id=?`, id,
+		`SELECT id, title, prompt, spec, branch, pr_url, status, approved FROM tasks WHERE id=?`, id,
 	)
 	task, err := scanTask(row)
 	if err == sql.ErrNoRows {
@@ -107,14 +105,16 @@ func (a *App) ApproveTask(id int) error {
 	}
 
 	newStatus := task.Status
+	approved := true
 	switch task.Status {
 	case "spec":
 		newStatus = "code"
 	case "review":
 		newStatus = "done"
+		approved = false // done is terminal, no agent action needed
 	}
 
-	if err := updateTaskStatus(a.db, id, newStatus, true); err != nil {
+	if err := updateTaskStatus(a.db, id, newStatus, approved); err != nil {
 		return err
 	}
 	a.emitTasks()
@@ -176,12 +176,11 @@ func (a *App) changeWorkDir(dir string) error {
 	if a.db != nil {
 		a.db.Close()
 	}
-	db, err := openDB(abs)
+	db, err := OpenDB(abs)
 	if err != nil {
 		return err
 	}
 	a.db = db
-	migrateFromJSON(abs, db)
 
 	a.emitTasks()
 	a.log(fmt.Sprintf("[CONFIG] Working directory set to: %s", abs))
@@ -207,7 +206,7 @@ func (a *App) SaveSettings(settings map[string]string) error {
 
 	// Persist each setting to the current DB before potentially switching.
 	for key, value := range settings {
-		if err := setSetting(a.db, key, value); err != nil {
+		if err := SetSetting(a.db, key, value); err != nil {
 			return err
 		}
 	}
@@ -251,8 +250,6 @@ func (a *App) runLoop() {
 			handlerErr = handlePrompt(task, dir, a.db, a.log)
 		case "code":
 			handlerErr = handleCode(task, dir, a.db, a.log)
-		case "done":
-			handlerErr = handleDone(task, dir, a.db, a.log)
 		}
 
 		if handlerErr != nil {

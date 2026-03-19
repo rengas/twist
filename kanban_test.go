@@ -2,9 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -53,7 +50,7 @@ func TestGetSetSetting(t *testing.T) {
 	defer cleanup()
 
 	// Missing key returns empty string, no error.
-	val, err := getSetting(db, "missing")
+	val, err := pkg.GetSetting(db, "missing")
 	if err != nil {
 		t.Fatalf("getSetting on missing key: %v", err)
 	}
@@ -62,10 +59,10 @@ func TestGetSetSetting(t *testing.T) {
 	}
 
 	// Set a value and read it back.
-	if err := setSetting(db, "workDir", "/tmp/project"); err != nil {
+	if err := pkg.SetSetting(db, "workDir", "/tmp/project"); err != nil {
 		t.Fatalf("setSetting: %v", err)
 	}
-	val, err = getSetting(db, "workDir")
+	val, err = pkg.GetSetting(db, "workDir")
 	if err != nil {
 		t.Fatalf("getSetting: %v", err)
 	}
@@ -74,10 +71,10 @@ func TestGetSetSetting(t *testing.T) {
 	}
 
 	// Upsert overwrites the previous value.
-	if err := setSetting(db, "workDir", "/home/user"); err != nil {
+	if err := pkg.SetSetting(db, "workDir", "/home/user"); err != nil {
 		t.Fatalf("setSetting upsert: %v", err)
 	}
-	val, _ = getSetting(db, "workDir")
+	val, _ = pkg.GetSetting(db, "workDir")
 	if val != "/home/user" {
 		t.Errorf("upsert: expected %q, got %q", "/home/user", val)
 	}
@@ -202,8 +199,8 @@ func TestFindActionableDB_SkipsNonActionableStatuses(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	// spec/review/complete are not actionable even if approved=1
-	for _, status := range []string{"spec", "review", "complete", "failed"} {
+	// spec/review/done/failed are not actionable even if approved=1
+	for _, status := range []string{"spec", "review", "done", "failed"} {
 		pkg.InsertTask(db, pkg.Task{Title: status, Status: status, Approved: true})
 	}
 
@@ -216,67 +213,34 @@ func TestFindActionableDB_SkipsNonActionableStatuses(t *testing.T) {
 	}
 }
 
-func TestMigrateFromJSON(t *testing.T) {
-	dir := t.TempDir()
+func TestUpdateTaskPRURL(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
 
-	tasks := []pkg.Task{
-		{ID: 1, Title: "Migrate me", Prompt: "P", Status: "prompt", Approved: false},
-		{ID: 2, Title: "And me", Prompt: "Q", Status: "spec", Approved: false},
-	}
-	data, _ := json.Marshal(tasks)
-	jsonPath := filepath.Join(dir, "KANBAN.json")
-	os.WriteFile(jsonPath, data, 0644)
-
-	db, err := pkg.OpenDB(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	pkg.MigrateFromJSON(dir, db)
-
-	// JSON should be renamed to .bak
-	if _, err := os.Stat(jsonPath); !os.IsNotExist(err) {
-		t.Error("KANBAN.json should have been renamed to .bak")
-	}
-	if _, err := os.Stat(jsonPath + ".bak"); err != nil {
-		t.Error("KANBAN.json.bak should exist")
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "code"})
+	if err := pkg.UpdateTaskPRURL(db, int(id), "https://github.com/org/repo/pull/42"); err != nil {
+		t.Fatalf("updateTaskPRURL: %v", err)
 	}
 
-	// Tasks should be in DB
-	loaded, _ := pkg.LoadTasks(db)
-	if len(loaded) != 2 {
-		t.Fatalf("expected 2 migrated tasks, got %d", len(loaded))
-	}
-	if loaded[0].Title != "Migrate me" || loaded[1].Title != "And me" {
-		t.Errorf("unexpected tasks: %+v", loaded)
+	tasks, _ := pkg.LoadTasks(db)
+	if tasks[0].PRURL != "https://github.com/org/repo/pull/42" {
+		t.Errorf("pr_url not updated: %q", tasks[0].PRURL)
 	}
 }
 
-func TestMigrateFromJSON_NoDoubleImport(t *testing.T) {
-	dir := t.TempDir()
+func TestDoneIsTerminal(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
 
-	tasks := []pkg.Task{{ID: 1, Title: "One", Status: "prompt"}}
-	data, _ := json.Marshal(tasks)
-	jsonPath := filepath.Join(dir, "KANBAN.json")
-	os.WriteFile(jsonPath, data, 0644)
+	// A task in "done" status with approved=true should NOT be actionable
+	pkg.InsertTask(db, pkg.Task{Title: "Done task", Status: "done", Approved: true})
 
-	db, _ := pkg.OpenDB(dir)
-	defer db.Close()
-
-	// Pre-populate DB
-	pkg.InsertTask(db, pkg.Task{Title: "Existing", Status: "prompt"})
-
-	pkg.MigrateFromJSON(dir, db)
-
-	loaded, _ := pkg.LoadTasks(db)
-	// Only the pre-existing task should be there
-	if len(loaded) != 1 || loaded[0].Title != "Existing" {
-		t.Errorf("double import occurred: %+v", loaded)
+	_, found, err := pkg.FindActionableDB(db)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// JSON should still be renamed to .bak
-	if _, err := os.Stat(jsonPath + ".bak"); err != nil {
-		t.Error("KANBAN.json.bak should exist even when DB not empty")
+	if found {
+		t.Error("tasks in 'done' status should not be actionable — done is terminal")
 	}
 }
 
@@ -321,7 +285,7 @@ func TestGetSetting_MissingKey(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	val, err := getSetting(db, "nonexistent")
+	val, err := pkg.GetSetting(db, "nonexistent")
 	if err != nil {
 		t.Fatalf("getSetting: %v", err)
 	}
@@ -334,11 +298,11 @@ func TestSetAndGetSetting(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	if err := setSetting(db, "workDir", "/tmp/project"); err != nil {
+	if err := pkg.SetSetting(db, "workDir", "/tmp/project"); err != nil {
 		t.Fatalf("setSetting: %v", err)
 	}
 
-	val, err := getSetting(db, "workDir")
+	val, err := pkg.GetSetting(db, "workDir")
 	if err != nil {
 		t.Fatalf("getSetting: %v", err)
 	}
@@ -351,12 +315,12 @@ func TestSetSetting_Upsert(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	setSetting(db, "workDir", "/tmp/first")
-	if err := setSetting(db, "workDir", "/tmp/second"); err != nil {
+	pkg.SetSetting(db, "workDir", "/tmp/first")
+	if err := pkg.SetSetting(db, "workDir", "/tmp/second"); err != nil {
 		t.Fatalf("setSetting upsert: %v", err)
 	}
 
-	val, _ := getSetting(db, "workDir")
+	val, _ := pkg.GetSetting(db, "workDir")
 	if val != "/tmp/second" {
 		t.Errorf("expected upserted value /tmp/second, got %q", val)
 	}

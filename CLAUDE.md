@@ -14,8 +14,8 @@ Defaults to current directory if `-dir` is omitted.
 ## Kanban Lanes
 
 ```
-prompt → spec → code → review → done → complete
-(agent)  (user) (agent) (user)  (agent)
+prompt → spec → code → review → done
+(agent)  (user) (agent+PR) (user)  (terminal)
 ```
 
 **The agent only acts when `approved: true`.** After each agent action it resets `approved` to `false` so you must explicitly re-approve the next stage.
@@ -24,40 +24,26 @@ prompt → spec → code → review → done → complete
 |---|---|---|
 | `prompt` | Agent | Set `approved: true` to trigger spec generation |
 | `spec` | **You** | Review spec → set `status: "code"` + `approved: true` |
-| `code` | Agent | Set `approved: true` to trigger implementation |
-| `review` | **You** | Review branch → set `status: "done"` + `approved: true` |
-| `done` | Agent | Set `approved: true` to trigger PR creation |
-| `complete` | — | Done |
+| `code` | Agent | Set `approved: true` to trigger implementation + PR creation |
+| `review` | **You** | Review PR → approve to move to `done` |
+| `done` | — | Terminal state |
 | `failed` | **You** | Fix manually → set `status: "code"` + `approved: true` to retry |
 
 ## Task Format
 
-Add tasks to `KANBAN.json` manually. Set `approved: true` to let the agent act:
+Tasks are stored in a SQLite database (`twist.db`). Add tasks via the UI. The agent fills in `spec`, `branch`, and `pr_url` automatically, and resets `approved` to `false` after each stage.
 
-```json
-[
-  {
-    "id": 1,
-    "title": "Add health check endpoint",
-    "prompt": "Add a GET /health endpoint that returns {\"status\": \"ok\"} with HTTP 200",
-    "spec": "",
-    "branch": "",
-    "status": "prompt",
-    "approved": true
-  }
-]
-```
-
-The agent fills in `spec` and `branch` automatically, and resets `approved` to `false` after each stage.
+After the agent finishes coding, it automatically pushes the branch, creates a PR via `gh`, and stores the PR URL on the task. The task then moves to `review` where the user can inspect the PR externally before approving.
 
 ## Key Files
 
 | File | Purpose |
 |---|---|
-| `main.go` | Full implementation (single file, stdlib only) |
-| `KANBAN.json` | The board — edit this to add tasks and approve lanes |
-
-No `SPEC.md` needed — specs are written by the agent and stored inside `KANBAN.json`.
+| `main.go` | Wails application entry point |
+| `pkg/app.go` | Application struct, exposed methods, and background loop |
+| `pkg/kanban.go` | Task struct, DB helpers, and lane handlers |
+| `pkg/exports.go` | Exported wrappers for testing |
+| `frontend/` | Vue 3 frontend |
 
 ## Git & GitHub
 

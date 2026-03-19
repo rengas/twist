@@ -3,9 +3,7 @@ package pkg
 import (
 	"bufio"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,9 +14,9 @@ import (
 )
 
 // Task represents a card on the Kanban board.
-// Status flow: prompt → spec → code → review → done → complete
+// Status flow: prompt → spec → code → review → done
 //
-//	(agent)       (user)  (agent)  (user) (agent)
+//	(agent)       (user)  (agent+PR)  (user) (terminal)
 //
 // The agent only acts when Approved is true. After each agent action it resets
 // Approved to false so the user must explicitly re-approve the next stage.
@@ -28,7 +26,8 @@ type Task struct {
 	Prompt   string `json:"prompt"`   // user writes this
 	Spec     string `json:"spec"`     // agent writes this
 	Branch   string `json:"branch"`   // agent sets this
-	Status   string `json:"status"`   // prompt | spec | code | review | done | complete | failed
+	PRURL    string `json:"pr_url"`   // agent sets this after code phase
+	Status   string `json:"status"`   // prompt | spec | code | review | done | failed
 	Approved bool   `json:"approved"` // user sets true to let agent act; agent resets to false after each stage
 }
 
@@ -51,6 +50,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     prompt   TEXT    NOT NULL DEFAULT '',
     spec     TEXT    NOT NULL DEFAULT '',
     branch   TEXT    NOT NULL DEFAULT '',
+    pr_url   TEXT    NOT NULL DEFAULT '',
     status   TEXT    NOT NULL DEFAULT 'prompt',
     approved INTEGER NOT NULL DEFAULT 0
 );`
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL DEFAULT ''
 );`
 
-func openDB(dir string) (*sql.DB, error) {
+func OpenDB(dir string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dbPath(dir))
 	if err != nil {
 		return nil, err
@@ -88,11 +88,15 @@ func createSchema(db *sql.DB) error {
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
-	_, err := db.Exec(settingsSchema)
-	return err
+	if _, err := db.Exec(settingsSchema); err != nil {
+		return err
+	}
+	// Migration: add pr_url column for existing databases that lack it.
+	db.Exec(`ALTER TABLE tasks ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
-func getSetting(db *sql.DB, key string) (string, error) {
+func GetSetting(db *sql.DB, key string) (string, error) {
 	var value string
 	err := db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
 	if err == sql.ErrNoRows {
@@ -101,7 +105,7 @@ func getSetting(db *sql.DB, key string) (string, error) {
 	return value, err
 }
 
-func setSetting(db *sql.DB, key, value string) error {
+func SetSetting(db *sql.DB, key, value string) error {
 	_, err := db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)`, key, value)
 	return err
 }
@@ -109,13 +113,13 @@ func setSetting(db *sql.DB, key, value string) error {
 func scanTask(row *sql.Row) (Task, error) {
 	var t Task
 	var approved int
-	err := row.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.Status, &approved)
+	err := row.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL, &t.Status, &approved)
 	t.Approved = approved == 1
 	return t, err
 }
 
 func loadTasks(db *sql.DB) ([]Task, error) {
-	rows, err := db.Query(`SELECT id, title, prompt, spec, branch, status, approved FROM tasks ORDER BY id`)
+	rows, err := db.Query(`SELECT id, title, prompt, spec, branch, pr_url, status, approved FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +128,7 @@ func loadTasks(db *sql.DB) ([]Task, error) {
 	for rows.Next() {
 		var t Task
 		var approved int
-		if err := rows.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.Status, &approved); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL, &t.Status, &approved); err != nil {
 			return nil, err
 		}
 		t.Approved = approved == 1
@@ -135,8 +139,8 @@ func loadTasks(db *sql.DB) ([]Task, error) {
 
 func insertTask(db *sql.DB, t Task) (int64, error) {
 	res, err := db.Exec(
-		`INSERT INTO tasks (title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?)`,
-		t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
+		`INSERT INTO tasks (title, prompt, spec, branch, pr_url, status, approved) VALUES (?,?,?,?,?,?,?)`,
+		t.Title, t.Prompt, t.Spec, t.Branch, t.PRURL, t.Status, boolToInt(t.Approved),
 	)
 	if err != nil {
 		return 0, err
@@ -162,6 +166,11 @@ func updateTaskBranch(db *sql.DB, id int, branch string) error {
 	return err
 }
 
+func updateTaskPRURL(db *sql.DB, id int, prURL string) error {
+	_, err := db.Exec(`UPDATE tasks SET pr_url=? WHERE id=?`, prURL, id)
+	return err
+}
+
 func deleteTask(db *sql.DB, id int) error {
 	_, err := db.Exec(`DELETE FROM tasks WHERE id=?`, id)
 	return err
@@ -176,8 +185,8 @@ func boolToInt(b bool) int {
 
 func findActionableDB(db *sql.DB) (Task, bool, error) {
 	row := db.QueryRow(
-		`SELECT id, title, prompt, spec, branch, status, approved FROM tasks
-         WHERE approved=1 AND status IN ('prompt','code','done')
+		`SELECT id, title, prompt, spec, branch, pr_url, status, approved FROM tasks
+         WHERE approved=1 AND status IN ('prompt','code')
          ORDER BY id LIMIT 1`,
 	)
 	t, err := scanTask(row)
@@ -185,41 +194,6 @@ func findActionableDB(db *sql.DB) (Task, bool, error) {
 		return Task{}, false, nil
 	}
 	return t, err == nil, err
-}
-
-// ── JSON Migration ─────────────────────────────────────────────────────────────
-
-func migrateFromJSON(dir string, db *sql.DB) {
-	jsonPath := filepath.Join(dir, "KANBAN.json")
-	data, err := os.ReadFile(jsonPath)
-	if err != nil {
-		return // no JSON file, nothing to migrate
-	}
-	var tasks []Task
-	if err := json.Unmarshal(data, &tasks); err != nil {
-		return
-	}
-	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM tasks`).Scan(&count)
-	if count > 0 {
-		os.Rename(jsonPath, jsonPath+".bak")
-		return
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return
-	}
-	for _, t := range tasks {
-		tx.Exec(
-			`INSERT INTO tasks (id, title, prompt, spec, branch, status, approved) VALUES (?,?,?,?,?,?,?)`,
-			t.ID, t.Title, t.Prompt, t.Spec, t.Branch, t.Status, boolToInt(t.Approved),
-		)
-	}
-	if err := tx.Commit(); err != nil {
-		tx.Rollback()
-		return
-	}
-	os.Rename(jsonPath, jsonPath+".bak")
 }
 
 // ── Lane Handlers ─────────────────────────────────────────────────────────────
@@ -290,41 +264,38 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 		return nil
 	}
 
-	if err := updateTaskStatus(db, task.ID, "review", false); err != nil {
-		return err
-	}
-
-	log(fmt.Sprintf("[REVIEW READY] Task #%d: Code committed on branch '%s'. Set status → 'done' + approved → true to raise a PR.", task.ID, branch))
-	return nil
-}
-
-// handleDone: pushes the branch and raises a PR, moves task to 'complete'.
-func handleDone(task Task, workDir string, db *sql.DB, log LogFunc) error {
-	log(fmt.Sprintf("[PR] Task #%d: Pushing branch and raising PR — %s", task.ID, task.Title))
-
-	log(fmt.Sprintf("[GIT] Pushing branch: %s", task.Branch))
-	if out, err := gitCmd(workDir, "push", "-u", "origin", task.Branch); err != nil {
-		return fmt.Errorf("failed to push branch: %v\n%s", err, out)
+	// Push branch and create PR automatically after successful implementation.
+	log(fmt.Sprintf("[GIT] Pushing branch: %s", branch))
+	if out, err := gitCmd(workDir, "push", "-u", "origin", branch); err != nil {
+		log(fmt.Sprintf("[FAILED] Task #%d push error: %v\n%s", task.ID, err, out))
+		_ = updateTaskStatus(db, task.ID, "failed", false)
+		return nil
 	}
 
 	prBody := fmt.Sprintf("## Task #%d: %s\n\n### Spec\n\n%s\n\n---\n🤖 Raised by twist",
 		task.ID, task.Title, task.Spec)
 
-	out, err := ghCmd(workDir, "pr", "create",
+	prOut, err := ghCmd(workDir, "pr", "create",
 		"--title", fmt.Sprintf("Task #%d: %s", task.ID, task.Title),
 		"--body", prBody,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create PR: %v\n%s", err, out)
+		log(fmt.Sprintf("[FAILED] Task #%d PR creation error: %v\n%s", task.ID, err, prOut))
+		_ = updateTaskStatus(db, task.ID, "failed", false)
+		return nil
 	}
 
-	log(fmt.Sprintf("[PR RAISED] %s", strings.TrimSpace(out)))
+	prURL := strings.TrimSpace(prOut)
+	log(fmt.Sprintf("[PR RAISED] %s", prURL))
 
-	if err := updateTaskStatus(db, task.ID, "complete", false); err != nil {
+	if err := updateTaskPRURL(db, task.ID, prURL); err != nil {
+		return err
+	}
+	if err := updateTaskStatus(db, task.ID, "review", false); err != nil {
 		return err
 	}
 
-	log(fmt.Sprintf("[COMPLETE] Task #%d done — PR raised, task closed.", task.ID))
+	log(fmt.Sprintf("[REVIEW READY] Task #%d: PR created on branch '%s'. Review the PR and approve to move to done.", task.ID, branch))
 	return nil
 }
 
