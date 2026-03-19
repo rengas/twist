@@ -183,7 +183,7 @@ func (a *App) changeWorkDir(dir string) error {
 		return err
 	}
 	a.db = db
-	migrateFromJSON(abs, db)
+	MigrateFromJSON(abs, db)
 
 	a.emitTasks()
 	a.log(fmt.Sprintf("[CONFIG] Working directory set to: %s", abs))
