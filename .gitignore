@@ -39,5 +39,7 @@ build
 .idea
 helix-lite.db-wal
 helix-lite.db-shm
+twist.db-wal
+twist.db-shm
 KANBAN.json.bak
 twist
