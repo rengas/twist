@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func NewApp() *App {
 	return &App{workDir: dir}
 }
 
-func (a *App) startup(ctx context.Context) {
+func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
 	db, err := openDB(a.workDir)

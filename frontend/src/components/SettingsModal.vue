@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, watch } from 'vue'
-import { GetSettings, SaveSettings, PickDirectory } from '../../wailsjs/go/main/App'
+import { GetSettings, SaveSettings, PickDirectory } from '../../wailsjs/go/pkg/App'
 
 const props = defineProps({
   modelValue: Boolean,

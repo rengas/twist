@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
-import { LoadTasks, GetWorkDir } from '../wailsjs/go/main/App'
+import { LoadTasks, GetWorkDir } from '../wailsjs/go/pkg/App'
 import KanbanBoard from './components/KanbanBoard.vue'
 import LogViewer from './components/LogViewer.vue'
 import AddTaskModal from './components/AddTaskModal.vue'
