@@ -5,12 +5,36 @@ const props = defineProps({ logs: Array })
 const container = ref(null)
 const collapsed = ref(false)
 
+const panelHeight = ref(160)
+const MIN_HEIGHT = 80
+const MAX_HEIGHT_RATIO = 0.8
+
 watch(() => props.logs.length, async () => {
   await nextTick()
   if (container.value) {
     container.value.scrollTop = container.value.scrollHeight
   }
 })
+
+function startResize(e) {
+  e.preventDefault()
+  const startY = e.clientY
+  const startH = panelHeight.value
+
+  function onMove(ev) {
+    const delta = startY - ev.clientY
+    const maxH = window.innerHeight * MAX_HEIGHT_RATIO
+    panelHeight.value = Math.min(maxH, Math.max(MIN_HEIGHT, startH + delta))
+  }
+
+  function onUp() {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
 
 function lineColor(line) {
   if (line.includes('[ERROR]') || line.includes('[FAILED]')) return 'text-red-400'
@@ -27,7 +51,16 @@ function lineColor(line) {
 </script>
 
 <template>
-  <div class="flex-shrink-0 border-t border-slate-700/50 bg-slate-900/80">
+  <div
+    class="flex-shrink-0 border-t border-slate-700/50 bg-slate-900/80 flex flex-col"
+    :style="collapsed ? {} : { height: panelHeight + 'px' }"
+  >
+    <!-- Resize handle -->
+    <div
+      class="h-1 w-full cursor-ns-resize hover:bg-violet-500/40 transition-colors flex-shrink-0"
+      @mousedown="startResize"
+    />
+
     <!-- Log header bar -->
     <div class="flex items-center justify-between px-4 py-1.5 cursor-pointer select-none"
          @click="collapsed = !collapsed">
@@ -47,8 +80,7 @@ function lineColor(line) {
 
     <!-- Log lines -->
     <div v-if="!collapsed" ref="container"
-         class="overflow-y-auto font-mono text-[11px] leading-relaxed px-4 pb-2"
-         style="max-height: 140px">
+         class="flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed px-4 pb-2">
       <div v-if="logs.length === 0" class="text-slate-700 py-1">No log output yet…</div>
       <div v-for="(line, i) in logs" :key="i" :class="lineColor(line)">{{ line }}</div>
     </div>
