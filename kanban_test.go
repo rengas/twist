@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/rengas/twist/pkg"
 )
 
 func testDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := openDB(dir)
+	db, err := pkg.OpenDB(dir)
 	if err != nil {
 		t.Fatalf("openDB: %v", err)
 	}
@@ -37,7 +39,7 @@ func TestInsertAndLoadTasks(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	id, err := insertTask(db, Task{Title: "T1", Prompt: "P1", Status: "prompt", Approved: false})
+	id, err := pkg.InsertTask(db, pkg.Task{Title: "T1", Prompt: "P1", Status: "prompt", Approved: false})
 	if err != nil {
 		t.Fatalf("insertTask: %v", err)
 	}
@@ -45,7 +47,7 @@ func TestInsertAndLoadTasks(t *testing.T) {
 		t.Fatal("expected non-zero inserted id")
 	}
 
-	tasks, err := loadTasks(db)
+	tasks, err := pkg.LoadTasks(db)
 	if err != nil {
 		t.Fatalf("loadTasks: %v", err)
 	}
@@ -61,12 +63,12 @@ func TestUpdateTaskStatus(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	id, _ := insertTask(db, Task{Title: "T", Status: "prompt", Approved: false})
-	if err := updateTaskStatus(db, int(id), "code", true); err != nil {
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "prompt", Approved: false})
+	if err := pkg.UpdateTaskStatus(db, int(id), "code", true); err != nil {
 		t.Fatalf("updateTaskStatus: %v", err)
 	}
 
-	tasks, _ := loadTasks(db)
+	tasks, _ := pkg.LoadTasks(db)
 	if tasks[0].Status != "code" || !tasks[0].Approved {
 		t.Errorf("unexpected fields after update: %+v", tasks[0])
 	}
@@ -76,12 +78,12 @@ func TestUpdateTaskSpec(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	id, _ := insertTask(db, Task{Title: "T", Status: "prompt"})
-	if err := updateTaskSpec(db, int(id), "my spec"); err != nil {
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "prompt"})
+	if err := pkg.UpdateTaskSpec(db, int(id), "my spec"); err != nil {
 		t.Fatalf("updateTaskSpec: %v", err)
 	}
 
-	tasks, _ := loadTasks(db)
+	tasks, _ := pkg.LoadTasks(db)
 	if tasks[0].Spec != "my spec" {
 		t.Errorf("spec not updated: %q", tasks[0].Spec)
 	}
@@ -91,12 +93,12 @@ func TestUpdateTaskBranch(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	id, _ := insertTask(db, Task{Title: "T", Status: "code"})
-	if err := updateTaskBranch(db, int(id), "feature/task-1-t"); err != nil {
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "code"})
+	if err := pkg.UpdateTaskBranch(db, int(id), "feature/task-1-t"); err != nil {
 		t.Fatalf("updateTaskBranch: %v", err)
 	}
 
-	tasks, _ := loadTasks(db)
+	tasks, _ := pkg.LoadTasks(db)
 	if tasks[0].Branch != "feature/task-1-t" {
 		t.Errorf("branch not updated: %q", tasks[0].Branch)
 	}
@@ -106,12 +108,12 @@ func TestDeleteTask(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	id, _ := insertTask(db, Task{Title: "T", Status: "prompt"})
-	if err := deleteTask(db, int(id)); err != nil {
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "prompt"})
+	if err := pkg.DeleteTask(db, int(id)); err != nil {
 		t.Fatalf("deleteTask: %v", err)
 	}
 
-	tasks, _ := loadTasks(db)
+	tasks, _ := pkg.LoadTasks(db)
 	if len(tasks) != 0 {
 		t.Errorf("expected 0 tasks after delete, got %d", len(tasks))
 	}
@@ -122,9 +124,9 @@ func TestFindActionableDB(t *testing.T) {
 	defer cleanup()
 
 	// Not approved — should not be actionable
-	insertTask(db, Task{Title: "A", Status: "prompt", Approved: false})
+	pkg.InsertTask(db, pkg.Task{Title: "A", Status: "prompt", Approved: false})
 
-	task, found, err := findActionableDB(db)
+	task, found, err := pkg.FindActionableDB(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,10 +135,10 @@ func TestFindActionableDB(t *testing.T) {
 	}
 
 	// Approve it
-	tasks, _ := loadTasks(db)
-	updateTaskStatus(db, tasks[0].ID, "prompt", true)
+	tasks, _ := pkg.LoadTasks(db)
+	pkg.UpdateTaskStatus(db, tasks[0].ID, "prompt", true)
 
-	task, found, err = findActionableDB(db)
+	task, found, err = pkg.FindActionableDB(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,10 +156,10 @@ func TestFindActionableDB_SkipsNonActionableStatuses(t *testing.T) {
 
 	// spec/review/complete are not actionable even if approved=1
 	for _, status := range []string{"spec", "review", "complete", "failed"} {
-		insertTask(db, Task{Title: status, Status: status, Approved: true})
+		pkg.InsertTask(db, pkg.Task{Title: status, Status: status, Approved: true})
 	}
 
-	_, found, err := findActionableDB(db)
+	_, found, err := pkg.FindActionableDB(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +171,7 @@ func TestFindActionableDB_SkipsNonActionableStatuses(t *testing.T) {
 func TestMigrateFromJSON(t *testing.T) {
 	dir := t.TempDir()
 
-	tasks := []Task{
+	tasks := []pkg.Task{
 		{ID: 1, Title: "Migrate me", Prompt: "P", Status: "prompt", Approved: false},
 		{ID: 2, Title: "And me", Prompt: "Q", Status: "spec", Approved: false},
 	}
@@ -177,13 +179,13 @@ func TestMigrateFromJSON(t *testing.T) {
 	jsonPath := filepath.Join(dir, "KANBAN.json")
 	os.WriteFile(jsonPath, data, 0644)
 
-	db, err := openDB(dir)
+	db, err := pkg.OpenDB(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	migrateFromJSON(dir, db)
+	pkg.MigrateFromJSON(dir, db)
 
 	// JSON should be renamed to .bak
 	if _, err := os.Stat(jsonPath); !os.IsNotExist(err) {
@@ -194,7 +196,7 @@ func TestMigrateFromJSON(t *testing.T) {
 	}
 
 	// Tasks should be in DB
-	loaded, _ := loadTasks(db)
+	loaded, _ := pkg.LoadTasks(db)
 	if len(loaded) != 2 {
 		t.Fatalf("expected 2 migrated tasks, got %d", len(loaded))
 	}
@@ -206,20 +208,20 @@ func TestMigrateFromJSON(t *testing.T) {
 func TestMigrateFromJSON_NoDoubleImport(t *testing.T) {
 	dir := t.TempDir()
 
-	tasks := []Task{{ID: 1, Title: "One", Status: "prompt"}}
+	tasks := []pkg.Task{{ID: 1, Title: "One", Status: "prompt"}}
 	data, _ := json.Marshal(tasks)
 	jsonPath := filepath.Join(dir, "KANBAN.json")
 	os.WriteFile(jsonPath, data, 0644)
 
-	db, _ := openDB(dir)
+	db, _ := pkg.OpenDB(dir)
 	defer db.Close()
 
 	// Pre-populate DB
-	insertTask(db, Task{Title: "Existing", Status: "prompt"})
+	pkg.InsertTask(db, pkg.Task{Title: "Existing", Status: "prompt"})
 
-	migrateFromJSON(dir, db)
+	pkg.MigrateFromJSON(dir, db)
 
-	loaded, _ := loadTasks(db)
+	loaded, _ := pkg.LoadTasks(db)
 	// Only the pre-existing task should be there
 	if len(loaded) != 1 || loaded[0].Title != "Existing" {
 		t.Errorf("double import occurred: %+v", loaded)
@@ -241,7 +243,7 @@ func TestConcurrentWrites(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			_, err := insertTask(db, Task{
+			_, err := pkg.InsertTask(db, pkg.Task{
 				Title:  "Concurrent task",
 				Status: "prompt",
 			})
@@ -258,7 +260,7 @@ func TestConcurrentWrites(t *testing.T) {
 		t.Errorf("concurrent insert error: %v", err)
 	}
 
-	tasks, err := loadTasks(db)
+	tasks, err := pkg.LoadTasks(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,10 +270,10 @@ func TestConcurrentWrites(t *testing.T) {
 }
 
 func TestBoolToInt(t *testing.T) {
-	if boolToInt(true) != 1 {
+	if pkg.BoolToInt(true) != 1 {
 		t.Error("boolToInt(true) should be 1")
 	}
-	if boolToInt(false) != 0 {
+	if pkg.BoolToInt(false) != 0 {
 		t.Error("boolToInt(false) should be 0")
 	}
 }
@@ -284,7 +286,7 @@ func TestSlugify(t *testing.T) {
 		{"MiXeD CaSe", "mixed-case"},
 	}
 	for _, c := range cases {
-		if got := slugify(c.in); got != c.want {
+		if got := pkg.Slugify(c.in); got != c.want {
 			t.Errorf("slugify(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}

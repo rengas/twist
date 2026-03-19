@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { AddTask } from '../../wailsjs/go/main/App'
+import { AddTask } from '../../wailsjs/go/pkg/App'
 
 const emit = defineEmits(['close', 'created'])
 

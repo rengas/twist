@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"context"
@@ -25,16 +25,16 @@ func NewApp() *App {
 	return &App{workDir: dir}
 }
 
-func (a *App) startup(ctx context.Context) {
+func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
-	db, err := openDB(a.workDir)
+	db, err := OpenDB(a.workDir)
 	if err != nil {
 		a.log(fmt.Sprintf("[ERROR] Failed to open DB: %v", err))
 		return
 	}
 	a.db = db
-	migrateFromJSON(a.workDir, db)
+	MigrateFromJSON(a.workDir, db)
 
 	a.emitTasks()
 	go a.runLoop()
@@ -47,7 +47,7 @@ func (a *App) LoadTasks() []Task {
 	if a.db == nil {
 		return []Task{}
 	}
-	tasks, err := loadTasks(a.db)
+	tasks, err := LoadTasks(a.db)
 	if err != nil {
 		a.log(fmt.Sprintf("[ERROR] %v", err))
 		return []Task{}
@@ -63,7 +63,7 @@ func (a *App) AddTask(title, prompt string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not initialised")
 	}
-	_, err := insertTask(a.db, Task{
+	_, err := InsertTask(a.db, Task{
 		Title:    title,
 		Prompt:   prompt,
 		Status:   "prompt",
@@ -104,7 +104,7 @@ func (a *App) ApproveTask(id int) error {
 		newStatus = "done"
 	}
 
-	if err := updateTaskStatus(a.db, id, newStatus, true); err != nil {
+	if err := UpdateTaskStatus(a.db, id, newStatus, true); err != nil {
 		return err
 	}
 	a.emitTasks()
@@ -116,7 +116,7 @@ func (a *App) DeleteTask(id int) error {
 	if a.db == nil {
 		return fmt.Errorf("database not initialised")
 	}
-	if err := deleteTask(a.db, id); err != nil {
+	if err := DeleteTask(a.db, id); err != nil {
 		return err
 	}
 	a.emitTasks()
@@ -151,12 +151,12 @@ func (a *App) SetWorkDir() (string, error) {
 	if a.db != nil {
 		a.db.Close()
 	}
-	db, err := openDB(abs)
+	db, err := OpenDB(abs)
 	if err != nil {
 		return abs, err
 	}
 	a.db = db
-	migrateFromJSON(abs, db)
+	MigrateFromJSON(abs, db)
 
 	a.emitTasks()
 	a.log(fmt.Sprintf("[CONFIG] Working directory set to: %s", abs))
@@ -177,7 +177,7 @@ func (a *App) runLoop() {
 		dir := a.workDir
 		a.mu.Unlock()
 
-		task, found, err := findActionableDB(a.db)
+		task, found, err := FindActionableDB(a.db)
 		if err != nil {
 			a.log(fmt.Sprintf("[ERROR] %v", err))
 			continue
@@ -213,7 +213,7 @@ func (a *App) emitTasks() {
 	var tasks []Task
 	if a.db != nil {
 		var err error
-		tasks, err = loadTasks(a.db)
+		tasks, err = LoadTasks(a.db)
 		if err != nil {
 			tasks = []Task{}
 		}
