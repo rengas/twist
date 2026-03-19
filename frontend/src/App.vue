@@ -52,9 +52,13 @@ onUnmounted(() => {
 <template>
   <div class="flex flex-col h-screen bg-slate-900 text-slate-200 select-none">
     <!-- Header -->
-    <header class="flex items-center justify-between px-6 py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0"
+    <header class="grid grid-cols-3 items-center px-6 py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0"
             style="--wails-draggable: drag">
-      <div class="flex items-center gap-3">
+      <!-- Left spacer -->
+      <div></div>
+
+      <!-- Center: Logo -->
+      <div class="flex items-center justify-center gap-3">
         <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-xs font-bold">
           T
         </div>
@@ -67,7 +71,8 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="flex items-center gap-3" style="--wails-draggable: no-drag">
+      <!-- Right: Actions -->
+      <div class="flex items-center justify-end gap-3" style="--wails-draggable: no-drag">
         <div class="flex items-center gap-1.5 text-xs text-slate-500 px-2 py-1"
              :title="workDir">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
