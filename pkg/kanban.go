@@ -301,41 +301,38 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 		return nil
 	}
 
-	if err := updateTaskStatus(db, task.ID, "review", false); err != nil {
-		return err
-	}
-
-	log(fmt.Sprintf("[REVIEW READY] Task #%d: Code committed on branch '%s'. Set status → 'done' + approved → true to raise a PR.", task.ID, branch))
-	return nil
-}
-
-// handleDone: pushes the branch and raises a PR, moves task to 'complete'.
-func handleDone(task Task, workDir string, db *sql.DB, log LogFunc) error {
-	log(fmt.Sprintf("[PR] Task #%d: Pushing branch and raising PR — %s", task.ID, task.Title))
-
-	log(fmt.Sprintf("[GIT] Pushing branch: %s", task.Branch))
-	if out, err := gitCmd(workDir, "push", "-u", "origin", task.Branch); err != nil {
-		return fmt.Errorf("failed to push branch: %v\n%s", err, out)
+	// Push branch and create PR automatically after successful implementation.
+	log(fmt.Sprintf("[GIT] Pushing branch: %s", branch))
+	if out, err := gitCmd(workDir, "push", "-u", "origin", branch); err != nil {
+		log(fmt.Sprintf("[FAILED] Task #%d push error: %v\n%s", task.ID, err, out))
+		_ = updateTaskStatus(db, task.ID, "failed", false)
+		return nil
 	}
 
 	prBody := fmt.Sprintf("## Task #%d: %s\n\n### Spec\n\n%s\n\n---\n🤖 Raised by twist",
 		task.ID, task.Title, task.Spec)
 
-	out, err := ghCmd(workDir, "pr", "create",
+	prOut, err := ghCmd(workDir, "pr", "create",
 		"--title", fmt.Sprintf("Task #%d: %s", task.ID, task.Title),
 		"--body", prBody,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create PR: %v\n%s", err, out)
+		log(fmt.Sprintf("[FAILED] Task #%d PR creation error: %v\n%s", task.ID, err, prOut))
+		_ = updateTaskStatus(db, task.ID, "failed", false)
+		return nil
 	}
 
-	log(fmt.Sprintf("[PR RAISED] %s", strings.TrimSpace(out)))
+	prURL := strings.TrimSpace(prOut)
+	log(fmt.Sprintf("[PR RAISED] %s", prURL))
 
-	if err := updateTaskStatus(db, task.ID, "complete", false); err != nil {
+	if err := updateTaskPRURL(db, task.ID, prURL); err != nil {
+		return err
+	}
+	if err := updateTaskStatus(db, task.ID, "review", false); err != nil {
 		return err
 	}
 
-	log(fmt.Sprintf("[COMPLETE] Task #%d done — PR raised, task closed.", task.ID))
+	log(fmt.Sprintf("[REVIEW READY] Task #%d: PR created on branch '%s'. Review the PR and approve to move to done.", task.ID, branch))
 	return nil
 }
 

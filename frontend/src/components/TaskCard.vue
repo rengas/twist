@@ -1,7 +1,7 @@
 <script setup>
 const props = defineProps({ task: Object, colKey: String })
 
-const agentOwnedStatuses = ['prompt', 'code', 'done']
+const agentOwnedStatuses = ['prompt', 'code']
 
 const isAgentOwned = agentOwnedStatuses.includes(props.task?.status)
 const isProcessing = isAgentOwned && props.task?.approved
@@ -18,7 +18,6 @@ function approvalLabel() {
   if (s === 'spec')   return 'Approve to code'
   if (s === 'code')   return 'Approve to build'
   if (s === 'review') return 'Approve PR'
-  if (s === 'done')   return 'Approve to push'
   if (s === 'failed') return 'Retry'
   return ''
 }
@@ -54,7 +53,15 @@ function approvalLabel() {
         {{ approvalLabel() }}
       </span>
 
-      <!-- Branch chip for review/done -->
+      <!-- PR link for review/done -->
+      <a v-else-if="task.pr_url && (task.status === 'review' || task.status === 'done')"
+         :href="task.pr_url" target="_blank"
+         class="text-[10px] text-blue-400 hover:text-blue-300 underline truncate max-w-[90px]"
+         @click.stop>
+        {{ task.pr_url.replace(/.*\/pull\//, 'PR #') }}
+      </a>
+
+      <!-- Branch chip fallback for review/done -->
       <span v-else-if="task.branch && (task.status === 'review' || task.status === 'done')"
             class="text-[10px] text-sky-400 font-mono truncate max-w-[90px]" :title="task.branch">
         {{ task.branch.replace('feature/', '') }}
