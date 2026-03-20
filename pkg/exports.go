@@ -19,3 +19,12 @@ func RemoveWorktree(workDir, wtPath string) error { return removeWorktree(workDi
 func BuildChatContextMessage(title, spec, userMessage string) string {
 	return buildChatContextMessage(title, spec, userMessage)
 }
+func ParseStreamLine(line string) (sessionID, content, result string, ok bool) {
+	return parseStreamLine(line)
+}
+func BuildChatArgs(opts chatInvokeOpts) []string { return buildChatArgs(opts) }
+
+// Export types for testing.
+type ChatInvokeOpts = chatInvokeOpts
+type ChatInvokeResult = chatInvokeResult
+type StreamLine = streamLine

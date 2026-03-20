@@ -3,6 +3,7 @@ package pkg
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -396,9 +397,57 @@ func (a *App) GetChatMessages(taskID int) []ChatMessage {
 	return msgs
 }
 
+// chatInvokeOpts configures a Claude CLI chat invocation.
+type chatInvokeOpts struct {
+	ResumeSessionID string // use --resume <id>
+	Fork            bool   // add --fork-session flag (boolean, modifies --resume)
+	SessionID       string // use --session-id <id> (fallback, mutually exclusive with Resume)
+	Message         string
+	Dir             string
+}
+
+// chatInvokeResult holds the response and any extracted session ID from stream-json output.
+type chatInvokeResult struct {
+	Response  string
+	SessionID string // extracted from stream-json; empty if not found
+}
+
+// streamLine represents a single JSON line from Claude's --output-format stream-json output.
+type streamLine struct {
+	Type      string `json:"type"`
+	SessionID string `json:"session_id,omitempty"`
+	Content   string `json:"content,omitempty"`
+	Result    string `json:"result,omitempty"`
+}
+
+// parseStreamLine parses a single line of stream-json output, returning
+// the session ID, content text, result text, and whether parsing succeeded.
+func parseStreamLine(line string) (sessionID, content, result string, ok bool) {
+	var sl streamLine
+	if err := json.Unmarshal([]byte(line), &sl); err != nil {
+		return "", "", "", false
+	}
+	return sl.SessionID, sl.Content, sl.Result, true
+}
+
+// buildChatArgs constructs the Claude CLI argument list for a chat invocation.
+func buildChatArgs(opts chatInvokeOpts) []string {
+	args := []string{"-p", "--dangerously-skip-permissions", "--output-format", "stream-json"}
+	if opts.ResumeSessionID != "" {
+		args = append(args, "--resume", opts.ResumeSessionID)
+		if opts.Fork {
+			args = append(args, "--fork-session")
+		}
+	} else if opts.SessionID != "" {
+		args = append(args, "--session-id", opts.SessionID)
+	}
+	args = append(args, opts.Message)
+	return args
+}
+
 // SendChatMessage accepts a user message, invokes Claude with a dedicated chat session, and streams the response back.
-// Uses a separate chat_session_id (not the workflow session_id) to avoid conflicts with spec/code phases.
-// Automatically retries once with a fresh session if a "already in use" conflict is detected.
+// Uses --resume --fork-session to fork from the workflow session, giving the chat full conversation history.
+// Falls back to context injection when no workflow session exists or when the session is locked.
 func (a *App) SendChatMessage(taskID int, message string) error {
 	if a.repo == nil {
 		return fmt.Errorf("database not connected")
@@ -444,25 +493,6 @@ func (a *App) SendChatMessage(taskID int, message string) error {
 		}
 	}
 
-	// Determine chat session ID (separate from workflow session_id).
-	isNewSession := task.ChatSessionID == ""
-	chatSessionID := task.ChatSessionID
-	if isNewSession {
-		chatSessionID = generateUUID()
-		if err := a.repo.UpdateTaskChatSessionID(taskID, chatSessionID); err != nil {
-			a.chatLocksMu.Lock()
-			delete(a.chatLocks, taskID)
-			a.chatLocksMu.Unlock()
-			return fmt.Errorf("failed to save chat session ID: %w", err)
-		}
-	}
-
-	// Build the message to send to Claude.
-	claudeMessage := message
-	if isNewSession {
-		claudeMessage = buildChatContextMessage(task.Title, task.Spec, message)
-	}
-
 	// Run Claude in a goroutine to avoid blocking.
 	go func() {
 		defer func() {
@@ -471,28 +501,108 @@ func (a *App) SendChatMessage(taskID int, message string) error {
 			a.chatLocksMu.Unlock()
 		}()
 
-		response, err := a.invokeChatClaude(taskID, chatSessionID, claudeMessage, dir)
-		if err != nil && strings.Contains(err.Error(), "already in use") {
-			// Session conflict — generate a fresh session and retry once.
-			a.log(fmt.Sprintf("[CHAT] Task #%d: session conflict detected, retrying with new session", taskID))
-			chatSessionID = generateUUID()
-			if dbErr := a.repo.UpdateTaskChatSessionID(taskID, chatSessionID); dbErr != nil {
-				runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": dbErr.Error()})
-				return
+		var result chatInvokeResult
+		var invokeErr error
+
+		if task.ChatSessionID != "" {
+			// Case A: resume existing chat session (no fork needed).
+			a.log(fmt.Sprintf("[CHAT] Task #%d: resuming chat session %s", taskID, task.ChatSessionID))
+			result, invokeErr = a.invokeChatClaude(taskID, chatInvokeOpts{
+				ResumeSessionID: task.ChatSessionID,
+				Message:         message,
+				Dir:             dir,
+			})
+			if invokeErr != nil && strings.Contains(invokeErr.Error(), "already in use") {
+				// Resumed chat session conflict — generate new UUID, retry with --session-id + context injection.
+				a.log(fmt.Sprintf("[CHAT] Task #%d: chat session conflict, falling back to new session", taskID))
+				newSessionID := generateUUID()
+				if dbErr := a.repo.UpdateTaskChatSessionID(taskID, newSessionID); dbErr != nil {
+					runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": dbErr.Error()})
+					return
+				}
+				contextMsg := buildChatContextMessage(task.Title, task.Spec, message)
+				result, invokeErr = a.invokeChatClaude(taskID, chatInvokeOpts{
+					SessionID: newSessionID,
+					Message:   contextMsg,
+					Dir:       dir,
+				})
+				if invokeErr == nil {
+					chatID := newSessionID
+					if result.SessionID != "" {
+						chatID = result.SessionID
+					}
+					_ = a.repo.UpdateTaskChatSessionID(taskID, chatID)
+				}
 			}
-			// Rebuild context-enriched message since new session has no history.
-			claudeMessage = buildChatContextMessage(task.Title, task.Spec, message)
-			response, err = a.invokeChatClaude(taskID, chatSessionID, claudeMessage, dir)
+		} else if task.SessionID != "" {
+			// Case B: fork from workflow session.
+			a.log(fmt.Sprintf("[CHAT] Task #%d: forking from workflow session %s", taskID, task.SessionID))
+			result, invokeErr = a.invokeChatClaude(taskID, chatInvokeOpts{
+				ResumeSessionID: task.SessionID,
+				Fork:            true,
+				Message:         message,
+				Dir:             dir,
+			})
+			if invokeErr != nil && strings.Contains(invokeErr.Error(), "already in use") {
+				// Workflow session locked — wait 2s, retry once.
+				a.log(fmt.Sprintf("[CHAT] Task #%d: workflow session locked, retrying in 2s", taskID))
+				time.Sleep(2 * time.Second)
+				result, invokeErr = a.invokeChatClaude(taskID, chatInvokeOpts{
+					ResumeSessionID: task.SessionID,
+					Fork:            true,
+					Message:         message,
+					Dir:             dir,
+				})
+				if invokeErr != nil {
+					// Fall back to fresh session + context injection.
+					a.log(fmt.Sprintf("[CHAT] Task #%d: fork retry failed, falling back to context injection", taskID))
+					newSessionID := generateUUID()
+					contextMsg := buildChatContextMessage(task.Title, task.Spec, message)
+					result, invokeErr = a.invokeChatClaude(taskID, chatInvokeOpts{
+						SessionID: newSessionID,
+						Message:   contextMsg,
+						Dir:       dir,
+					})
+					if invokeErr == nil {
+						chatID := newSessionID
+						if result.SessionID != "" {
+							chatID = result.SessionID
+						}
+						_ = a.repo.UpdateTaskChatSessionID(taskID, chatID)
+					}
+				}
+			}
+			if invokeErr == nil && result.SessionID != "" {
+				// Store forked session ID for subsequent --resume calls.
+				_ = a.repo.UpdateTaskChatSessionID(taskID, result.SessionID)
+			}
+		} else {
+			// Case C: no workflow session — fresh session with context injection.
+			a.log(fmt.Sprintf("[CHAT] Task #%d: no workflow session, using fresh session with context", taskID))
+			newSessionID := generateUUID()
+			contextMsg := buildChatContextMessage(task.Title, task.Spec, message)
+			result, invokeErr = a.invokeChatClaude(taskID, chatInvokeOpts{
+				SessionID: newSessionID,
+				Message:   contextMsg,
+				Dir:       dir,
+			})
+			if invokeErr == nil {
+				chatID := newSessionID
+				if result.SessionID != "" {
+					chatID = result.SessionID
+				}
+				_ = a.repo.UpdateTaskChatSessionID(taskID, chatID)
+			}
 		}
 
-		if err != nil {
-			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
+		if invokeErr != nil {
+			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": invokeErr.Error()})
 			return
 		}
 
 		// Save assistant response.
-		if response != "" {
-			a.repo.InsertChatMessage(taskID, "assistant", response)
+		if result.Response != "" {
+			a.repo.InsertChatMessage(taskID, "assistant", result.Response)
 		}
 
 		runtime.EventsEmit(a.ctx, "chat:done", map[string]interface{}{"task_id": taskID})
@@ -501,28 +611,24 @@ func (a *App) SendChatMessage(taskID int, message string) error {
 	return nil
 }
 
-// invokeChatClaude runs the Claude CLI with the given chat session and message,
-// streaming stdout to the frontend. Returns the full response and any error.
+// invokeChatClaude runs the Claude CLI with the given options, parsing stream-json output.
+// Returns the response text and any session ID extracted from the stream.
 // If stderr contains "already in use", the error message will contain that substring.
-func (a *App) invokeChatClaude(taskID int, sessionID, message, dir string) (string, error) {
-	args := []string{"-p", "--dangerously-skip-permissions"}
-	if sessionID != "" {
-		args = append(args, "--session-id", sessionID)
-	}
-	args = append(args, message)
+func (a *App) invokeChatClaude(taskID int, opts chatInvokeOpts) (chatInvokeResult, error) {
+	args := buildChatArgs(opts)
 	cmd := exec.Command("claude", args...)
-	cmd.Dir = dir
+	cmd.Dir = opts.Dir
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", err
+		return chatInvokeResult{}, err
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return "", err
+		return chatInvokeResult{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return chatInvokeResult{}, err
 	}
 
 	// Drain stderr in background, capturing it for conflict detection.
@@ -539,26 +645,48 @@ func (a *App) invokeChatClaude(taskID int, sessionID, message, dir string) (stri
 		}
 	}()
 
-	// Stream stdout line-by-line.
+	// Parse stream-json output line-by-line.
+	var result chatInvokeResult
 	var fullResponse strings.Builder
 	scanner := bufio.NewScanner(stdoutPipe)
 	for scanner.Scan() {
 		line := scanner.Text()
-		fullResponse.WriteString(line + "\n")
-		runtime.EventsEmit(a.ctx, "chat:stream", map[string]interface{}{"task_id": taskID, "chunk": line + "\n"})
+
+		sessionID, content, resultText, ok := parseStreamLine(line)
+		if !ok {
+			// Treat as raw text (defensive fallback).
+			fullResponse.WriteString(line + "\n")
+			runtime.EventsEmit(a.ctx, "chat:stream", map[string]interface{}{"task_id": taskID, "chunk": line + "\n"})
+			continue
+		}
+
+		if sessionID != "" && result.SessionID == "" {
+			result.SessionID = sessionID
+		}
+		if content != "" {
+			fullResponse.WriteString(content)
+			runtime.EventsEmit(a.ctx, "chat:stream", map[string]interface{}{"task_id": taskID, "chunk": content})
+		}
+		if resultText != "" {
+			result.Response = resultText
+		}
 	}
 
 	wg.Wait()
 	if err := cmd.Wait(); err != nil {
-		// Include stderr in the error so callers can detect "already in use".
 		stderrStr := stderrBuf.String()
 		if strings.Contains(stderrStr, "already in use") {
-			return "", fmt.Errorf("session already in use")
+			return chatInvokeResult{}, fmt.Errorf("session already in use")
 		}
-		return "", fmt.Errorf("claude exited with error: %v (stderr: %s)", err, stderrStr)
+		return chatInvokeResult{}, fmt.Errorf("claude exited with error: %v (stderr: %s)", err, stderrStr)
 	}
 
-	return strings.TrimSpace(fullResponse.String()), nil
+	// If no explicit result was captured from a "result" message, use the accumulated response.
+	if result.Response == "" {
+		result.Response = strings.TrimSpace(fullResponse.String())
+	}
+
+	return result, nil
 }
 
 // buildChatContextMessage wraps the user's message with task context for a new chat session.
