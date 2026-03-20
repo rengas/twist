@@ -7,7 +7,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'saved'])
 
-const draft = reactive({ workDir: '' })
+const draft = reactive({ workDir: '', maxWorkers: '3' })
 const errorMsg = ref('')
 const saving = ref(false)
 
@@ -18,6 +18,7 @@ watch(() => props.modelValue, async (open) => {
     try {
       const settings = await GetSettings()
       draft.workDir = settings.workDir ?? ''
+      draft.maxWorkers = settings.maxWorkers ?? '3'
     } catch (e) {
       errorMsg.value = String(e)
     }
@@ -39,7 +40,7 @@ async function save() {
   saving.value = true
   errorMsg.value = ''
   try {
-    await SaveSettings({ workDir: draft.workDir })
+    await SaveSettings({ workDir: draft.workDir, maxWorkers: draft.maxWorkers })
     emit('saved')
     emit('update:modelValue', false)
   } catch (e) {
@@ -108,7 +109,24 @@ function onKeydown(e) {
             </div>
           </section>
 
-          <!-- Future sections slot here -->
+          <!-- Agent section -->
+          <section>
+            <h3 class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-3">Agent</h3>
+
+            <div class="space-y-1.5">
+              <label class="block text-xs font-medium text-slate-400">Max Concurrent Tasks</label>
+              <input v-model="draft.maxWorkers"
+                     type="number"
+                     min="1"
+                     max="10"
+                     class="w-24 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2
+                            text-sm text-slate-200 focus:outline-none
+                            focus:border-violet-500 focus:ring-1 focus:ring-violet-500/50 transition-colors" />
+              <p class="text-[11px] text-slate-500">
+                Number of tasks the agent can process in parallel (1–10).
+              </p>
+            </div>
+          </section>
 
           <p v-if="errorMsg" class="text-xs text-red-400">{{ errorMsg }}</p>
         </div>

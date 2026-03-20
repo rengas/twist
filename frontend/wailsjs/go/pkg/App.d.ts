@@ -8,6 +8,12 @@ export function ApproveTask(arg1:number):Promise<void>;
 
 export function DeleteTask(arg1:number):Promise<void>;
 
+export function GetActiveCount():Promise<number>;
+
+export function GetDesignDoc():Promise<string>;
+
+export function GetDesignHistory():Promise<Array<pkg.DesignVersion>>;
+
 export function GetSettings():Promise<Record<string, string>>;
 
 export function GetWorkDir():Promise<string>;

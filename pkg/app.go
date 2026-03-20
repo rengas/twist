@@ -6,23 +6,34 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+const defaultMaxWorkers = 3
+
 // App is the Wails application struct. Methods on App are exposed to the Vue frontend.
 type App struct {
-	ctx     context.Context
-	workDir string
-	mu      sync.Mutex // guards workDir string access only
-	db      *sql.DB
+	ctx           context.Context
+	workDir       string
+	mu            sync.Mutex // guards workDir string access only
+	db            *sql.DB
+	designMu      sync.Mutex                // serializes writes to design document
+	activeTasksMu sync.Mutex                // guards activeTasks map
+	activeTasks   map[int]context.CancelFunc // prevents double-pickup of tasks
+	maxWorkers    int                        // max concurrent agent tasks
 }
 
 func NewApp() *App {
 	dir, _ := os.Getwd()
-	return &App{workDir: dir}
+	return &App{
+		workDir:     dir,
+		activeTasks: make(map[int]context.CancelFunc),
+		maxWorkers:  defaultMaxWorkers,
+	}
 }
 
 func (a *App) Startup(ctx context.Context) {
@@ -43,6 +54,16 @@ func (a *App) Startup(ctx context.Context) {
 			a.workDir = saved
 		}
 	}
+
+	// Load max workers setting.
+	if val, err := GetSetting(a.db, "maxWorkers"); err == nil && val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n >= 1 && n <= 10 {
+			a.maxWorkers = n
+		}
+	}
+
+	// Clean up orphan worktrees from previous runs.
+	cleanOrphanWorktrees(a.workDir, a.db, a.log)
 
 	a.emitTasks()
 	go a.runLoop()
@@ -94,7 +115,7 @@ func (a *App) ApproveTask(id int) error {
 	}
 
 	row := a.db.QueryRow(
-		`SELECT id, title, prompt, spec, branch, pr_url, status, approved FROM tasks WHERE id=?`, id,
+		`SELECT `+taskColumns+` FROM tasks WHERE id=?`, id,
 	)
 	task, err := scanTask(row)
 	if err == sql.ErrNoRows {
@@ -121,11 +142,31 @@ func (a *App) ApproveTask(id int) error {
 	return nil
 }
 
-// DeleteTask removes a task by ID.
+// DeleteTask removes a task by ID, cleaning up its worktree if present.
 func (a *App) DeleteTask(id int) error {
 	if a.db == nil {
 		return fmt.Errorf("database not initialised")
 	}
+
+	// Clean up worktree if the task has one.
+	task, err := getTaskByID(a.db, id)
+	if err == nil && task.WorktreePath != "" {
+		a.mu.Lock()
+		dir := a.workDir
+		a.mu.Unlock()
+		if err := removeWorktree(dir, task.WorktreePath); err != nil {
+			a.log(fmt.Sprintf("[WARN] Failed to remove worktree for task #%d: %v", id, err))
+		}
+	}
+
+	// Cancel active processing if running.
+	a.activeTasksMu.Lock()
+	if cancel, ok := a.activeTasks[id]; ok {
+		cancel()
+		delete(a.activeTasks, id)
+	}
+	a.activeTasksMu.Unlock()
+
 	if err := deleteTask(a.db, id); err != nil {
 		return err
 	}
@@ -190,7 +231,8 @@ func (a *App) changeWorkDir(dir string) error {
 // GetSettings returns all user-configurable settings as a map.
 func (a *App) GetSettings() (map[string]string, error) {
 	result := map[string]string{
-		"workDir": a.workDir,
+		"workDir":    a.workDir,
+		"maxWorkers": strconv.Itoa(a.maxWorkers),
 	}
 	return result, nil
 }
@@ -218,6 +260,13 @@ func (a *App) SaveSettings(settings map[string]string) error {
 		}
 	}
 
+	// Apply maxWorkers change.
+	if val, ok := settings["maxWorkers"]; ok && val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n >= 1 && n <= 10 {
+			a.maxWorkers = n
+		}
+	}
+
 	return nil
 }
 
@@ -235,29 +284,87 @@ func (a *App) runLoop() {
 		dir := a.workDir
 		a.mu.Unlock()
 
-		task, found, err := findActionableDB(a.db)
+		tasks, err := findActionableTasksDB(a.db)
 		if err != nil {
 			a.log(fmt.Sprintf("[ERROR] %v", err))
 			continue
 		}
-		if !found {
-			continue
-		}
 
-		var handlerErr error
-		switch task.Status {
-		case "prompt":
-			handlerErr = handlePrompt(task, dir, a.db, a.log)
-		case "code":
-			handlerErr = handleCode(task, dir, a.db, a.log)
-		}
+		for _, task := range tasks {
+			a.activeTasksMu.Lock()
+			// Skip if already running.
+			if _, running := a.activeTasks[task.ID]; running {
+				a.activeTasksMu.Unlock()
+				continue
+			}
+			// Skip if at capacity.
+			if len(a.activeTasks) >= a.maxWorkers {
+				a.activeTasksMu.Unlock()
+				break
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			a.activeTasks[task.ID] = cancel
+			a.activeTasksMu.Unlock()
 
-		if handlerErr != nil {
-			a.log(fmt.Sprintf("[ERROR] Task #%d: %v", task.ID, handlerErr))
+			go a.processTask(ctx, task, dir)
 		}
-
-		a.emitTasks()
 	}
+}
+
+func (a *App) processTask(ctx context.Context, task Task, dir string) {
+	defer func() {
+		a.activeTasksMu.Lock()
+		delete(a.activeTasks, task.ID)
+		a.activeTasksMu.Unlock()
+		a.emitTasks()
+		a.emitActiveCount()
+	}()
+
+	a.emitActiveCount()
+
+	var handlerErr error
+	switch task.Status {
+	case "prompt":
+		handlerErr = handlePrompt(task, dir, a.db, &a.designMu, a.log)
+	case "code":
+		handlerErr = handleCode(task, dir, a.db, &a.designMu, a.log)
+	}
+
+	if handlerErr != nil {
+		a.log(fmt.Sprintf("[ERROR] Task #%d: %v", task.ID, handlerErr))
+	}
+}
+
+// ── Design Document API (exposed to Vue) ──────────────────────────────────────
+
+// GetDesignDoc returns the current design document content.
+func (a *App) GetDesignDoc() string {
+	a.mu.Lock()
+	dir := a.workDir
+	a.mu.Unlock()
+	return readDesignContent(dir)
+}
+
+// GetDesignHistory returns all design document versions.
+func (a *App) GetDesignHistory() []DesignVersion {
+	if a.db == nil {
+		return []DesignVersion{}
+	}
+	versions, err := getDesignHistory(a.db)
+	if err != nil {
+		return []DesignVersion{}
+	}
+	if versions == nil {
+		return []DesignVersion{}
+	}
+	return versions
+}
+
+// GetActiveCount returns how many tasks are currently being processed.
+func (a *App) GetActiveCount() int {
+	a.activeTasksMu.Lock()
+	defer a.activeTasksMu.Unlock()
+	return len(a.activeTasks)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -278,6 +385,13 @@ func (a *App) emitTasks() {
 		tasks = []Task{}
 	}
 	runtime.EventsEmit(a.ctx, "tasks:updated", tasks)
+}
+
+func (a *App) emitActiveCount() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, "activeCount:updated", a.GetActiveCount())
 }
 
 func (a *App) log(msg string) {

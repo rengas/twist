@@ -14,6 +14,18 @@ export function DeleteTask(arg1) {
   return window['go']['pkg']['App']['DeleteTask'](arg1);
 }
 
+export function GetActiveCount() {
+  return window['go']['pkg']['App']['GetActiveCount']();
+}
+
+export function GetDesignDoc() {
+  return window['go']['pkg']['App']['GetDesignDoc']();
+}
+
+export function GetDesignHistory() {
+  return window['go']['pkg']['App']['GetDesignHistory']();
+}
+
 export function GetSettings() {
   return window['go']['pkg']['App']['GetSettings']();
 }

@@ -43,3 +43,5 @@ twist.db-wal
 twist.db-shm
 KANBAN.json.bak
 twist
+.twist-worktrees/
+DESIGN.md
