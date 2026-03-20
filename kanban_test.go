@@ -348,3 +348,309 @@ func TestSlugify(t *testing.T) {
 		}
 	}
 }
+
+// ── Phase 1: Session Persistence Tests ────────────────────────────────────────
+
+func TestSessionID_Persistence(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "prompt"})
+	if err := pkg.UpdateTaskSessionID(db, int(id), "test-session-123"); err != nil {
+		t.Fatalf("updateTaskSessionID: %v", err)
+	}
+
+	task, err := pkg.GetTaskByID(db, int(id))
+	if err != nil {
+		t.Fatalf("getTaskByID: %v", err)
+	}
+	if task.SessionID != "test-session-123" {
+		t.Errorf("session_id not updated: %q", task.SessionID)
+	}
+}
+
+func TestSessionID_InsertedWithTask(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "prompt", SessionID: "pre-set-id"})
+	task, _ := pkg.GetTaskByID(db, int(id))
+	if task.SessionID != "pre-set-id" {
+		t.Errorf("expected session_id to be pre-set-id, got %q", task.SessionID)
+	}
+}
+
+func TestGenerateUUID(t *testing.T) {
+	uuid1 := pkg.GenerateUUID()
+	uuid2 := pkg.GenerateUUID()
+
+	if len(uuid1) == 0 {
+		t.Fatal("UUID should not be empty")
+	}
+	if uuid1 == uuid2 {
+		t.Error("two UUIDs should not be identical")
+	}
+	// UUID v4 format: 8-4-4-4-12 chars
+	if len(uuid1) != 36 {
+		t.Errorf("UUID should be 36 chars, got %d: %q", len(uuid1), uuid1)
+	}
+}
+
+func TestSchemaMigration_SessionIDAndWorktreePath(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	// Verify session_id and worktree_path columns exist by querying them directly.
+	var sid, wtp string
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "prompt"})
+	err := db.QueryRow(`SELECT session_id, worktree_path FROM tasks WHERE id=?`, id).Scan(&sid, &wtp)
+	if err != nil {
+		t.Fatalf("new columns should exist: %v", err)
+	}
+	if sid != "" || wtp != "" {
+		t.Errorf("defaults should be empty strings, got sid=%q wtp=%q", sid, wtp)
+	}
+}
+
+// ── Phase 2: Worktree Path Tests ──────────────────────────────────────────────
+
+func TestWorktreePath_Persistence(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "T", Status: "code"})
+	if err := pkg.UpdateTaskWorktreePath(db, int(id), "/tmp/wt/task-1"); err != nil {
+		t.Fatalf("updateTaskWorktreePath: %v", err)
+	}
+
+	task, _ := pkg.GetTaskByID(db, int(id))
+	if task.WorktreePath != "/tmp/wt/task-1" {
+		t.Errorf("worktree_path not updated: %q", task.WorktreePath)
+	}
+}
+
+// ── Phase 3: Parallel Execution Tests ─────────────────────────────────────────
+
+func TestFindActionableTasksDB_ReturnsMultiple(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	// Insert 3 actionable tasks.
+	pkg.InsertTask(db, pkg.Task{Title: "A", Status: "prompt", Approved: true})
+	pkg.InsertTask(db, pkg.Task{Title: "B", Status: "code", Approved: true})
+	pkg.InsertTask(db, pkg.Task{Title: "C", Status: "prompt", Approved: true})
+
+	// Insert non-actionable tasks.
+	pkg.InsertTask(db, pkg.Task{Title: "D", Status: "spec", Approved: true})
+	pkg.InsertTask(db, pkg.Task{Title: "E", Status: "prompt", Approved: false})
+
+	tasks, err := pkg.FindActionableTasksDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 actionable tasks, got %d", len(tasks))
+	}
+	if tasks[0].Title != "A" || tasks[1].Title != "B" || tasks[2].Title != "C" {
+		t.Errorf("unexpected task order: %+v", tasks)
+	}
+}
+
+func TestFindActionableTasksDB_Empty(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	tasks, err := pkg.FindActionableTasksDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 tasks, got %d", len(tasks))
+	}
+}
+
+// ── Phase 4: Design Document Tests ───────────────────────────────────────────
+
+func TestDesignVersions_Schema(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM design_versions`).Scan(&count); err != nil {
+		t.Fatalf("design_versions table not created: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 rows, got %d", count)
+	}
+}
+
+func TestDesignVersion_AppendAndGet(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	dir := t.TempDir()
+	var mu sync.Mutex
+
+	pkg.AppendDesignVersion(db, &mu, dir, 1, "## Task #1\nFirst spec", "Task 1 spec")
+
+	version, content, err := pkg.GetLatestDesignVersion(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Errorf("expected version 1, got %d", version)
+	}
+	if content != "## Task #1\nFirst spec" {
+		t.Errorf("unexpected content: %q", content)
+	}
+
+	// Append another version.
+	pkg.AppendDesignVersion(db, &mu, dir, 2, "## Task #2\nSecond spec", "Task 2 spec")
+
+	version, content, err = pkg.GetLatestDesignVersion(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 2 {
+		t.Errorf("expected version 2, got %d", version)
+	}
+	if !containsSubstring(content, "Task #1") || !containsSubstring(content, "Task #2") {
+		t.Errorf("content should contain both tasks: %q", content)
+	}
+}
+
+func TestDesignHistory(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	dir := t.TempDir()
+	var mu sync.Mutex
+
+	pkg.AppendDesignVersion(db, &mu, dir, 1, "Section 1", "First")
+	pkg.AppendDesignVersion(db, &mu, dir, 2, "Section 2", "Second")
+
+	history, err := pkg.GetDesignHistory(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(history))
+	}
+	// History is DESC order.
+	if history[0].Version != 2 || history[1].Version != 1 {
+		t.Errorf("unexpected version order: %+v", history)
+	}
+	if history[0].Summary != "Second" || history[1].Summary != "First" {
+		t.Errorf("unexpected summaries: %+v", history)
+	}
+}
+
+func TestDesignVersion_ConcurrentWrites(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	dir := t.TempDir()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			pkg.AppendDesignVersion(db, &mu, dir, n, "Section", "summary")
+		}(i)
+	}
+	wg.Wait()
+
+	history, err := pkg.GetDesignHistory(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 10 {
+		t.Fatalf("expected 10 versions from concurrent writes, got %d", len(history))
+	}
+
+	// Verify versions are monotonically increasing (no gaps, no dupes).
+	versions := make(map[int]bool)
+	for _, v := range history {
+		versions[v.Version] = true
+	}
+	for i := 1; i <= 10; i++ {
+		if !versions[i] {
+			t.Errorf("missing version %d", i)
+		}
+	}
+}
+
+func TestBuildTaskContext(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	pkg.InsertTask(db, pkg.Task{Title: "Task A", Spec: "Spec for A", Status: "spec"})
+	pkg.InsertTask(db, pkg.Task{Title: "Task B", Spec: "Spec for B", Status: "code"})
+	id3, _ := pkg.InsertTask(db, pkg.Task{Title: "Task C", Spec: "Spec for C", Status: "prompt"})
+
+	// Exclude task C — should only see A and B.
+	ctx, err := pkg.BuildTaskContext(db, int(id3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsSubstring(ctx, "Task A") || !containsSubstring(ctx, "Task B") {
+		t.Errorf("context should include A and B: %q", ctx)
+	}
+	if containsSubstring(ctx, "Task C") {
+		t.Error("context should exclude the current task")
+	}
+}
+
+func TestBuildTaskContext_ExcludesEmptySpecs(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	pkg.InsertTask(db, pkg.Task{Title: "No Spec", Spec: "", Status: "prompt"})
+	pkg.InsertTask(db, pkg.Task{Title: "Has Spec", Spec: "details", Status: "spec"})
+
+	ctx, _ := pkg.BuildTaskContext(db, 0)
+	if containsSubstring(ctx, "No Spec") {
+		t.Error("should not include tasks with empty specs")
+	}
+	if !containsSubstring(ctx, "Has Spec") {
+		t.Error("should include tasks with specs")
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	if got := pkg.Truncate("hello", 10); got != "hello" {
+		t.Errorf("short string should not be truncated: %q", got)
+	}
+	if got := pkg.Truncate("hello world", 5); got != "hello..." {
+		t.Errorf("long string should be truncated: %q", got)
+	}
+}
+
+func TestGetTaskByID(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	id, _ := pkg.InsertTask(db, pkg.Task{Title: "Lookup", Status: "prompt", Prompt: "test prompt"})
+	task, err := pkg.GetTaskByID(db, int(id))
+	if err != nil {
+		t.Fatalf("getTaskByID: %v", err)
+	}
+	if task.Title != "Lookup" || task.Prompt != "test prompt" {
+		t.Errorf("unexpected task: %+v", task)
+	}
+}
+
+func containsSubstring(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
+}
+
+func containsStr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

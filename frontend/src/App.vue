@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
-import { LoadTasks, GetWorkDir } from '../wailsjs/go/pkg/App'
+import { LoadTasks, GetWorkDir, GetActiveCount } from '../wailsjs/go/pkg/App'
 import KanbanBoard from './components/KanbanBoard.vue'
 import LogViewer from './components/LogViewer.vue'
 import AddTaskModal from './components/AddTaskModal.vue'
@@ -12,13 +12,17 @@ const logs = ref([])
 const workDir = ref('')
 const showAddModal = ref(false)
 const showSettings = ref(false)
-const agentRunning = ref(false)
+const activeCount = ref(0)
 
 async function refresh() {
   tasks.value = await LoadTasks()
-  agentRunning.value = tasks.value.some(
-    t => t.approved && (t.status === 'prompt' || t.status === 'code')
-  )
+  try {
+    activeCount.value = await GetActiveCount()
+  } catch {
+    activeCount.value = tasks.value.filter(
+      t => t.approved && (t.status === 'prompt' || t.status === 'code')
+    ).length
+  }
 }
 
 async function onSettingsSaved() {
@@ -32,9 +36,10 @@ onMounted(async () => {
 
   EventsOn('tasks:updated', (updated) => {
     tasks.value = updated
-    agentRunning.value = updated.some(
-      t => t.approved && (t.status === 'prompt' || t.status === 'code')
-    )
+  })
+
+  EventsOn('activeCount:updated', (count) => {
+    activeCount.value = count
   })
 
   EventsOn('log', (line) => {
@@ -45,6 +50,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   EventsOff('tasks:updated')
+  EventsOff('activeCount:updated')
   EventsOff('log')
 })
 </script>
@@ -64,10 +70,10 @@ onUnmounted(() => {
         </div>
         <span class="font-semibold text-slate-100 text-sm tracking-wide">twist</span>
         <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs"
-             :class="agentRunning ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'">
+             :class="activeCount > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'">
           <span class="w-1.5 h-1.5 rounded-full inline-block"
-                :class="agentRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'"></span>
-          {{ agentRunning ? 'Agent running' : 'Idle' }}
+                :class="activeCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'"></span>
+          {{ activeCount > 0 ? `${activeCount} task${activeCount > 1 ? 's' : ''} running` : 'Idle' }}
         </div>
       </div>
 
