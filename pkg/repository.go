@@ -14,6 +14,7 @@ type Repository interface {
 	UpdateTaskBranch(id int, branch string) error
 	UpdateTaskPRURL(id int, prURL string) error
 	UpdateTaskSessionID(id int, sessionID string) error
+	UpdateTaskChatSessionID(id int, chatSessionID string) error
 	UpdateTaskWorktreePath(id int, path string) error
 	DeleteTask(id int) error
 	FindActionableTask() (Task, bool, error)

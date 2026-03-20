@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN chat_session_id TEXT NOT NULL DEFAULT '';

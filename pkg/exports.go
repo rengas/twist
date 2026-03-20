@@ -16,3 +16,6 @@ func CreateWorktree(workDir, branch string, taskID int) (string, error) {
 	return createWorktree(workDir, branch, taskID)
 }
 func RemoveWorktree(workDir, wtPath string) error { return removeWorktree(workDir, wtPath) }
+func BuildChatContextMessage(title, spec, userMessage string) string {
+	return buildChatContextMessage(title, spec, userMessage)
+}

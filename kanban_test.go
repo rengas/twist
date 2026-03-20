@@ -671,6 +671,98 @@ func TestPostgres_ChatMessages_MultipleTasksIsolated(t *testing.T) {
 	}
 }
 
+// ── Chat Session ID Tests ─────────────────────────────────────────────────
+
+func TestPostgres_ChatSessionID_Persistence(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "T", Status: "prompt"})
+
+	// Initially empty.
+	task, err := repo.GetTaskByID(int(id))
+	if err != nil {
+		t.Fatalf("getTaskByID: %v", err)
+	}
+	if task.ChatSessionID != "" {
+		t.Errorf("expected empty chat_session_id, got %q", task.ChatSessionID)
+	}
+
+	// Update it.
+	if err := repo.UpdateTaskChatSessionID(int(id), "chat-session-abc"); err != nil {
+		t.Fatalf("updateTaskChatSessionID: %v", err)
+	}
+
+	task, err = repo.GetTaskByID(int(id))
+	if err != nil {
+		t.Fatalf("getTaskByID: %v", err)
+	}
+	if task.ChatSessionID != "chat-session-abc" {
+		t.Errorf("chat_session_id not updated: %q", task.ChatSessionID)
+	}
+}
+
+func TestPostgres_ChatSessionID_IndependentOfSessionID(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "T", Status: "prompt"})
+
+	// Set both session IDs independently.
+	repo.UpdateTaskSessionID(int(id), "workflow-session-123")
+	repo.UpdateTaskChatSessionID(int(id), "chat-session-456")
+
+	task, _ := repo.GetTaskByID(int(id))
+	if task.SessionID != "workflow-session-123" {
+		t.Errorf("session_id wrong: %q", task.SessionID)
+	}
+	if task.ChatSessionID != "chat-session-456" {
+		t.Errorf("chat_session_id wrong: %q", task.ChatSessionID)
+	}
+}
+
+func TestPostgres_ChatSessionID_SurvivesLoadTasks(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	repo.InsertTask(pkg.Task{Title: "T", Status: "prompt"})
+	tasks, _ := repo.LoadTasks()
+	repo.UpdateTaskChatSessionID(tasks[0].ID, "chat-sess-load")
+
+	tasks, err := repo.LoadTasks()
+	if err != nil {
+		t.Fatalf("loadTasks: %v", err)
+	}
+	if tasks[0].ChatSessionID != "chat-sess-load" {
+		t.Errorf("chat_session_id not loaded: %q", tasks[0].ChatSessionID)
+	}
+}
+
+func TestBuildChatContextMessage(t *testing.T) {
+	msg := pkg.BuildChatContextMessage("Fix login bug", "The login form crashes on submit", "How should I test this?")
+
+	if !containsSubstring(msg, "Fix login bug") {
+		t.Error("context message should contain task title")
+	}
+	if !containsSubstring(msg, "The login form crashes on submit") {
+		t.Error("context message should contain spec")
+	}
+	if !containsSubstring(msg, "How should I test this?") {
+		t.Error("context message should contain user message")
+	}
+}
+
+func TestBuildChatContextMessage_EmptySpec(t *testing.T) {
+	msg := pkg.BuildChatContextMessage("New Task", "", "Hello")
+
+	if !containsSubstring(msg, "New Task") {
+		t.Error("context message should contain task title even with empty spec")
+	}
+	if !containsSubstring(msg, "Hello") {
+		t.Error("context message should contain user message")
+	}
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func containsSubstring(s, sub string) bool {
