@@ -1,4 +1,6 @@
 <script setup>
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+
 const props = defineProps({ task: Object, colKey: String })
 
 const agentOwnedStatuses = ['prompt', 'code']
@@ -21,6 +23,12 @@ function approvalLabel() {
   if (s === 'failed') return 'Retry'
   return ''
 }
+
+function openPR() {
+  if (props.task.pr_url) {
+    BrowserOpenURL(props.task.pr_url)
+  }
+}
 </script>
 
 <template>
@@ -35,7 +43,7 @@ function approvalLabel() {
     <p class="text-[10px] text-slate-500 leading-relaxed line-clamp-2 mb-2">{{ preview() }}</p>
 
     <!-- Footer -->
-    <div class="flex items-center justify-between mt-auto">
+    <div class="flex items-center justify-between mt-auto select-none">
       <span class="text-[10px] text-slate-600 font-mono">#{{ task.id }}</span>
 
       <!-- Processing spinner -->
@@ -54,12 +62,11 @@ function approvalLabel() {
       </span>
 
       <!-- PR link for review/done -->
-      <a v-else-if="task.pr_url && (task.status === 'review' || task.status === 'done')"
-         :href="task.pr_url" target="_blank"
-         class="text-[10px] text-blue-400 hover:text-blue-300 underline truncate max-w-[90px]"
-         @click.stop>
+      <span v-else-if="task.pr_url && (task.status === 'review' || task.status === 'done')"
+            class="text-[10px] text-blue-400 hover:text-blue-300 underline truncate max-w-[90px] cursor-pointer"
+            @click.stop="openPR">
         {{ task.pr_url.replace(/.*\/pull\//, 'PR #') }}
-      </a>
+      </span>
 
       <!-- Branch chip fallback for review/done -->
       <span v-else-if="task.branch && (task.status === 'review' || task.status === 'done')"
