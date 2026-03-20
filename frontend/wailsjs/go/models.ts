@@ -1,5 +1,25 @@
 export namespace pkg {
 	
+	export class ChatMessage {
+	    id: number;
+	    task_id: number;
+	    role: string;
+	    content: string;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.task_id = source["task_id"];
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.created_at = source["created_at"];
+	    }
+	}
 	export class DBStatus {
 	    connected: boolean;
 	    database_url: string;
