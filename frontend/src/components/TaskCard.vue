@@ -1,4 +1,6 @@
 <script setup>
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+
 const props = defineProps({ task: Object, colKey: String })
 const emit = defineEmits(['open-chat'])
 
@@ -21,6 +23,12 @@ function approvalLabel() {
   if (s === 'review') return 'Approve PR'
   if (s === 'failed') return 'Retry'
   return ''
+}
+
+function openPR() {
+  if (props.task.pr_url) {
+    BrowserOpenURL(props.task.pr_url)
+  }
 }
 </script>
 
@@ -65,12 +73,11 @@ function approvalLabel() {
       </span>
 
       <!-- PR link for review/done -->
-      <a v-else-if="task.pr_url && (task.status === 'review' || task.status === 'done')"
-         :href="task.pr_url" target="_blank"
-         class="text-[10px] text-blue-400 hover:text-blue-300 underline truncate max-w-[90px]"
-         @click.stop>
+      <span v-else-if="task.pr_url && (task.status === 'review' || task.status === 'done')"
+            class="text-[10px] text-blue-400 hover:text-blue-300 underline truncate max-w-[90px] cursor-pointer"
+            @click.stop="openPR">
         {{ task.pr_url.replace(/.*\/pull\//, 'PR #') }}
-      </a>
+      </span>
 
       <!-- Branch chip fallback for review/done -->
       <span v-else-if="task.branch && (task.status === 'review' || task.status === 'done')"

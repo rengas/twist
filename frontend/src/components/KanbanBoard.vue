@@ -36,7 +36,7 @@ function onModalClose() {
     <div v-for="col in columns" :key="col.key"
          class="flex flex-col flex-shrink-0 w-52 rounded-xl bg-slate-800/50 border border-slate-700/40 backdrop-blur-sm">
       <!-- Column Header -->
-      <div class="flex items-center gap-2 px-3 pt-3 pb-2.5">
+      <div class="flex items-center gap-2 px-3 pt-3 pb-2.5 select-none">
         <div class="w-2 h-2 rounded-full" :class="col.dot"></div>
         <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">{{ col.label }}</span>
         <span class="ml-auto text-xs px-1.5 py-0.5 rounded-full font-medium" :class="col.badge">

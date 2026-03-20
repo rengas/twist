@@ -170,9 +170,9 @@ onUnmounted(() => {
 
   <!-- Main app — shown only when connected -->
   <template v-else>
-    <div class="flex flex-col h-screen bg-slate-900 text-slate-200 select-none">
+    <div class="flex flex-col h-screen bg-slate-900 text-slate-200">
       <!-- Header -->
-      <header class="grid grid-cols-3 items-center px-6 py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0"
+      <header class="grid grid-cols-3 items-center px-6 py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0 select-none"
               style="--wails-draggable: drag">
         <!-- Left spacer -->
         <div></div>
