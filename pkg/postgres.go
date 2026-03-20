@@ -173,6 +173,20 @@ func (r *PostgresRepository) FindActionableTasks() ([]Task, error) {
 	return tasks, rows.Err()
 }
 
+func (r *PostgresRepository) ArchiveTask(id int) error {
+	_, err := r.db.Exec(
+		`UPDATE tasks SET status='archived', approved=false WHERE id=$1`, id)
+	return err
+}
+
+func (r *PostgresRepository) RestoreTask(id int) error {
+	_, err := r.db.Exec(
+		`UPDATE tasks SET status='prompt', approved=false,
+		 spec='', branch='', pr_url='', session_id='', chat_session_id='', worktree_path=''
+		 WHERE id=$1 AND status='archived'`, id)
+	return err
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 func (r *PostgresRepository) GetSetting(key string) (string, error) {

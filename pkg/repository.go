@@ -20,6 +20,8 @@ type Repository interface {
 	DeleteTask(id int) error
 	FindActionableTask() (Task, bool, error)
 	FindActionableTasks() ([]Task, error)
+	ArchiveTask(id int) error
+	RestoreTask(id int) error
 
 	// Settings
 	GetSetting(key string) (string, error)

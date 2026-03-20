@@ -259,6 +259,10 @@ func (a *App) ApproveTask(id int) error {
 		return fmt.Errorf("task #%d not found: %w", id, err)
 	}
 
+	if task.Status == "archived" {
+		return fmt.Errorf("cannot approve archived task %d — restore it first", id)
+	}
+
 	newStatus := task.Status
 	approved := true
 	switch task.Status {
@@ -354,6 +358,30 @@ func (a *App) UpdateTask(id int, title, prompt, spec string) error {
 		_ = a.repo.UpdateTaskChatSessionID(id, "")
 	}
 
+	a.emitTasks()
+	return nil
+}
+
+// ArchiveTask moves a task to the archived status.
+func (a *App) ArchiveTask(id int) error {
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if err := a.repo.ArchiveTask(id); err != nil {
+		return fmt.Errorf("archive task %d: %w", id, err)
+	}
+	a.emitTasks()
+	return nil
+}
+
+// RestoreTask moves an archived task back to prompt, clearing agent fields.
+func (a *App) RestoreTask(id int) error {
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if err := a.repo.RestoreTask(id); err != nil {
+		return fmt.Errorf("restore task %d: %w", id, err)
+	}
 	a.emitTasks()
 	return nil
 }

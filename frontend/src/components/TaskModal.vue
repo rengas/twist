@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { BrowserOpenURL, ClipboardSetText } from '../../wailsjs/runtime/runtime'
-import { ApproveTask, DeleteTask, UpdateTask } from '../../wailsjs/go/pkg/App'
+import { ApproveTask, DeleteTask, UpdateTask, ArchiveTask, RestoreTask } from '../../wailsjs/go/pkg/App'
 
 const props = defineProps({ task: Object })
 const emit = defineEmits(['close', 'open-chat'])
@@ -29,6 +29,8 @@ const renderedSpec = computed(() => {
   if (!props.task.spec) return ''
   return marked.parse(props.task.spec)
 })
+
+const isArchived = computed(() => props.task.status === 'archived')
 
 const canApprove = computed(() => {
   const s = props.task.status
@@ -57,6 +59,7 @@ const statusColor = computed(() => ({
   review:   'bg-orange-500/30 text-orange-300',
   done:     'bg-emerald-500/30 text-emerald-300',
   failed:   'bg-red-500/30 text-red-300',
+  archived: 'bg-slate-500/20 text-slate-300',
 }[props.task.status] || 'bg-slate-500/30 text-slate-300'))
 
 function startEditing() {
@@ -101,6 +104,32 @@ async function deleteTask() {
   loading.value = true
   try {
     await DeleteTask(props.task.id)
+    emit('close')
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function archiveTask() {
+  loading.value = true
+  error.value = ''
+  try {
+    await ArchiveTask(props.task.id)
+    emit('close')
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function restoreTask() {
+  loading.value = true
+  error.value = ''
+  try {
+    await RestoreTask(props.task.id)
     emit('close')
   } catch (e) {
     error.value = String(e)
@@ -229,6 +258,16 @@ function copyField(value, feedbackRef) {
 
       <!-- Scrollable content -->
       <div class="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+        <!-- Archived notice -->
+        <div v-if="isArchived"
+             class="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-700/50 border border-slate-600/50 text-sm text-slate-300">
+          <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+          </svg>
+          This task is archived. Restore it to start the workflow from the beginning.
+        </div>
+
         <!-- Prompt section -->
         <div>
           <h3 class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5 select-none">Prompt</h3>
@@ -274,10 +313,17 @@ function copyField(value, feedbackRef) {
 
       <!-- Footer actions -->
       <div class="flex items-center justify-between px-6 py-4 border-t border-slate-700/50 select-none">
-        <button @click="deleteTask" :disabled="loading || editing"
-                class="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
-          Delete task
-        </button>
+        <div class="flex items-center gap-3">
+          <button @click="deleteTask" :disabled="loading || editing"
+                  class="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
+            Delete task
+          </button>
+          <!-- Archive button for non-archived tasks -->
+          <button v-if="!isArchived" @click="archiveTask" :disabled="loading"
+                  class="text-xs text-slate-400 hover:text-slate-300 transition-colors disabled:opacity-50">
+            Archive
+          </button>
+        </div>
 
         <div class="flex items-center gap-3">
           <p v-if="error" class="text-xs text-red-400">{{ error }}</p>
@@ -315,6 +361,21 @@ function copyField(value, feedbackRef) {
               Close
             </button>
 
+            <!-- Restore button for archived tasks -->
+            <button v-if="isArchived" @click="restoreTask" :disabled="loading"
+                    class="flex items-center gap-2 px-4 py-2 text-xs rounded-lg font-semibold
+                           bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50">
+              <svg v-if="loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 000 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
+              </svg>
+              <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 10h10a5 5 0 010 10H9m4-10l-4-4m4 4l-4 4"/>
+              </svg>
+              Restore to Prompt
+            </button>
+
             <button v-if="canApprove" @click="approve" :disabled="loading"
                     class="flex items-center gap-2 px-4 py-2 text-xs rounded-lg font-semibold
                            bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50">
@@ -328,7 +389,7 @@ function copyField(value, feedbackRef) {
               {{ approveLabel }}
             </button>
 
-            <span v-else-if="task.approved && task.status !== 'done'"
+            <span v-else-if="task.approved && task.status !== 'done' && !isArchived"
                   class="text-xs text-emerald-400">
               Agent is working…
             </span>
