@@ -30,6 +30,7 @@ type App struct {
 	connected     bool                       // whether the database is connected
 	chatLocksMu   sync.Mutex                 // guards chatLocks map
 	chatLocks     map[int]bool               // prevents overlapping Claude chat invocations per task
+	loopCancel    context.CancelFunc         // cancels the current background loop
 }
 
 func NewApp() *App {
@@ -154,7 +155,14 @@ func (a *App) connectDB(databaseURL string) error {
 
 	a.emitTasks()
 	a.emitDBStatus()
-	go a.runLoop()
+
+	// Cancel previous background loop before starting a new one.
+	if a.loopCancel != nil {
+		a.loopCancel()
+	}
+	loopCtx, cancel := context.WithCancel(context.Background())
+	a.loopCancel = cancel
+	go a.runLoop(loopCtx)
 
 	return nil
 }
@@ -322,9 +330,17 @@ func (a *App) changeWorkDir(dir string) error {
 
 // GetSettings returns all user-configurable settings as a map.
 func (a *App) GetSettings() (map[string]string, error) {
+	dbURL := ""
+	if envURL := os.Getenv("TWIST_DATABASE_URL"); envURL != "" {
+		dbURL = envURL
+	} else if cfg, err := LoadConfig(); err == nil {
+		dbURL = cfg.DatabaseURL
+	}
+
 	result := map[string]string{
-		"workDir":    a.workDir,
-		"maxWorkers": strconv.Itoa(a.maxWorkers),
+		"workDir":     a.workDir,
+		"maxWorkers":  strconv.Itoa(a.maxWorkers),
+		"databaseURL": dbURL,
 	}
 	return result, nil
 }
@@ -496,9 +512,13 @@ func (a *App) SendChatMessage(taskID int, message string) error {
 
 // ── Background Loop ───────────────────────────────────────────────────────────
 
-func (a *App) runLoop() {
+func (a *App) runLoop(ctx context.Context) {
 	for {
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
 
 		if a.repo == nil || !a.connected {
 			continue
@@ -526,11 +546,11 @@ func (a *App) runLoop() {
 				a.activeTasksMu.Unlock()
 				break
 			}
-			ctx, cancel := context.WithCancel(context.Background())
+			taskCtx, cancel := context.WithCancel(context.Background())
 			a.activeTasks[task.ID] = cancel
 			a.activeTasksMu.Unlock()
 
-			go a.processTask(ctx, task, dir)
+			go a.processTask(taskCtx, task, dir)
 		}
 	}
 }

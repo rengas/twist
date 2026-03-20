@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { ApproveTask, DeleteTask } from '../../wailsjs/go/pkg/App'
 
@@ -8,6 +8,11 @@ const emit = defineEmits(['close', 'open-chat'])
 
 const loading = ref(false)
 const error = ref('')
+const isSpecExpanded = ref(false)
+
+watch(() => props.task?.id, () => {
+  isSpecExpanded.value = false
+})
 
 const renderedSpec = computed(() => {
   if (!props.task.spec) return ''
@@ -108,10 +113,30 @@ async function deleteTask() {
           <p class="text-sm text-slate-300 bg-slate-900/50 rounded-lg px-3 py-2.5 leading-relaxed">{{ task.prompt }}</p>
         </div>
 
-        <!-- Spec section -->
-        <div v-if="task.spec">
-          <h3 class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5">Spec</h3>
-          <div class="prose text-sm bg-slate-900/50 rounded-lg px-4 py-3" v-html="renderedSpec"></div>
+        <!-- Spec section (collapsible) -->
+        <div v-if="task.spec" class="spec-section">
+          <button
+            class="spec-toggle"
+            :aria-expanded="isSpecExpanded"
+            @click="isSpecExpanded = !isSpecExpanded"
+          >
+            <svg
+              class="chevron"
+              :class="{ 'chevron-expanded': isSpecExpanded }"
+              width="16" height="16" viewBox="0 0 16 16"
+              fill="currentColor"
+            >
+              <path d="M6 4l4 4-4 4" />
+            </svg>
+            <span class="spec-toggle-label">Spec</span>
+          </button>
+
+          <div
+            class="spec-content"
+            :class="{ 'spec-content-expanded': isSpecExpanded }"
+          >
+            <div class="prose text-sm bg-slate-900/50 rounded-lg px-4 py-3" v-html="renderedSpec"></div>
+          </div>
         </div>
         <div v-else-if="task.status !== 'prompt'" class="text-sm text-slate-600 italic">
           No spec yet — agent will generate it when approved.
@@ -168,3 +193,43 @@ async function deleteTask() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.spec-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.spec-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chevron {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.chevron-expanded {
+  transform: rotate(90deg);
+}
+
+.spec-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+}
+
+.spec-content-expanded {
+  max-height: 2000px;
+}
+</style>
