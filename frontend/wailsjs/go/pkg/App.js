@@ -22,6 +22,10 @@ export function GetActiveCount() {
   return window['go']['pkg']['App']['GetActiveCount']();
 }
 
+export function GetChatMessages(arg1) {
+  return window['go']['pkg']['App']['GetChatMessages'](arg1);
+}
+
 export function GetDBStatus() {
   return window['go']['pkg']['App']['GetDBStatus']();
 }
@@ -52,6 +56,10 @@ export function PickDirectory() {
 
 export function SaveSettings(arg1) {
   return window['go']['pkg']['App']['SaveSettings'](arg1);
+}
+
+export function SendChatMessage(arg1, arg2) {
+  return window['go']['pkg']['App']['SendChatMessage'](arg1, arg2);
 }
 
 export function SetWorkDir(arg1) {

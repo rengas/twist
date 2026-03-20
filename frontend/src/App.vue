@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
-import { LoadTasks, GetWorkDir, GetActiveCount, GetDBStatus } from '../wailsjs/go/pkg/App'
+import { LoadTasks, GetWorkDir, GetActiveCount, GetDBStatus, GetChatMessages, SendChatMessage } from '../wailsjs/go/pkg/App'
 import KanbanBoard from './components/KanbanBoard.vue'
+import ChatPanel from './components/ChatPanel.vue'
 import LogViewer from './components/LogViewer.vue'
 import AddTaskModal from './components/AddTaskModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -16,6 +17,50 @@ const showSettings = ref(false)
 const activeCount = ref(0)
 const dbConnected = ref(false)
 const savedDbUrl = ref('')
+
+// Chat state
+const chatOpen = ref(false)
+const chatTaskId = ref(null)
+const chatTaskTitle = ref('')
+const chatMessages = ref([])
+const chatStreaming = ref(false)
+const chatStreamBuffer = ref('')
+const chatError = ref('')
+
+async function openChat(taskID) {
+  chatError.value = ''
+  chatStreamBuffer.value = ''
+  chatStreaming.value = false
+  chatTaskId.value = taskID
+
+  // Find task title
+  const task = tasks.value.find(t => t.id === taskID)
+  chatTaskTitle.value = task ? task.title : `Task #${taskID}`
+
+  try {
+    chatMessages.value = await GetChatMessages(taskID)
+  } catch {
+    chatMessages.value = []
+  }
+  chatOpen.value = true
+}
+
+function closeChat() {
+  chatOpen.value = false
+}
+
+async function sendChatMessage(text) {
+  if (!chatTaskId.value || chatStreaming.value) return
+  chatError.value = ''
+  chatStreaming.value = true
+  chatStreamBuffer.value = ''
+  try {
+    await SendChatMessage(chatTaskId.value, text)
+  } catch (e) {
+    chatError.value = String(e)
+    chatStreaming.value = false
+  }
+}
 
 async function refresh() {
   tasks.value = await LoadTasks()
@@ -73,6 +118,38 @@ onMounted(async () => {
     logs.value.push(line)
     if (logs.value.length > 500) logs.value.shift()
   })
+
+  // Chat events
+  EventsOn('chat:message', (msg) => {
+    if (msg.task_id === chatTaskId.value) {
+      chatMessages.value.push(msg)
+    }
+  })
+
+  EventsOn('chat:stream', (payload) => {
+    if (payload.task_id === chatTaskId.value) {
+      chatStreamBuffer.value += payload.chunk
+    }
+  })
+
+  EventsOn('chat:done', async (payload) => {
+    if (payload.task_id === chatTaskId.value) {
+      chatStreaming.value = false
+      chatStreamBuffer.value = ''
+      // Reload messages from backend for consistency.
+      try {
+        chatMessages.value = await GetChatMessages(chatTaskId.value)
+      } catch { /* keep current */ }
+    }
+  })
+
+  EventsOn('chat:error', (payload) => {
+    if (payload.task_id === chatTaskId.value) {
+      chatError.value = payload.error
+      chatStreaming.value = false
+      chatStreamBuffer.value = ''
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -80,6 +157,10 @@ onUnmounted(() => {
   EventsOff('tasks:updated')
   EventsOff('activeCount:updated')
   EventsOff('log')
+  EventsOff('chat:message')
+  EventsOff('chat:stream')
+  EventsOff('chat:done')
+  EventsOff('chat:error')
 })
 </script>
 
@@ -131,8 +212,24 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <!-- Kanban Board -->
-      <KanbanBoard :tasks="tasks" @refresh="refresh" class="flex-1 min-h-0" />
+      <!-- Kanban + Chat -->
+      <div class="flex flex-1 min-h-0">
+        <!-- Kanban Board -->
+        <KanbanBoard :tasks="tasks" @refresh="refresh" @open-chat="openChat"
+                     class="flex-1 min-h-0 transition-all duration-200" />
+
+        <!-- Chat Panel -->
+        <div v-if="chatOpen" class="w-96 flex-shrink-0 transition-all duration-200">
+          <ChatPanel :task-id="chatTaskId"
+                     :task-title="chatTaskTitle"
+                     :messages="chatMessages"
+                     :streaming="chatStreaming"
+                     :stream-buffer="chatStreamBuffer"
+                     :error="chatError"
+                     @send="sendChatMessage"
+                     @close="closeChat" />
+        </div>
+      </div>
 
       <!-- Log Viewer -->
       <LogViewer :logs="logs" />

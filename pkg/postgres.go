@@ -40,7 +40,7 @@ func (r *PostgresRepository) Close() error {
 
 // TruncateAll removes all data from all tables. Used by tests for clean state.
 func (r *PostgresRepository) TruncateAll() {
-	r.db.Exec(`TRUNCATE tasks, settings, design_versions RESTART IDENTITY`)
+	r.db.Exec(`TRUNCATE chat_messages, tasks, settings, design_versions RESTART IDENTITY CASCADE`)
 }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
@@ -219,6 +219,40 @@ func (r *PostgresRepository) GetDesignHistory() ([]DesignVersion, error) {
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
+}
+
+// ── Cross-task Context ────────────────────────────────────────────────────────
+
+// ── Chat Messages ─────────────────────────────────────────────────────────────
+
+func (r *PostgresRepository) InsertChatMessage(taskID int, role, content string) (ChatMessage, error) {
+	var msg ChatMessage
+	err := r.db.QueryRow(
+		`INSERT INTO chat_messages (task_id, role, content) VALUES ($1, $2, $3)
+		 RETURNING id, task_id, role, content, created_at`,
+		taskID, role, content,
+	).Scan(&msg.ID, &msg.TaskID, &msg.Role, &msg.Content, &msg.CreatedAt)
+	return msg, err
+}
+
+func (r *PostgresRepository) GetChatMessages(taskID int) ([]ChatMessage, error) {
+	rows, err := r.db.Query(
+		`SELECT id, task_id, role, content, created_at FROM chat_messages
+		 WHERE task_id = $1 ORDER BY created_at ASC`, taskID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var messages []ChatMessage
+	for rows.Next() {
+		var m ChatMessage
+		if err := rows.Scan(&m.ID, &m.TaskID, &m.Role, &m.Content, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
 }
 
 // ── Cross-task Context ────────────────────────────────────────────────────────

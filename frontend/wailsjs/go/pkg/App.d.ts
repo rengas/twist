@@ -12,6 +12,8 @@ export function DeleteTask(arg1:number):Promise<void>;
 
 export function GetActiveCount():Promise<number>;
 
+export function GetChatMessages(arg1:number):Promise<Array<pkg.ChatMessage>>;
+
 export function GetDBStatus():Promise<pkg.DBStatus>;
 
 export function GetDesignDoc():Promise<string>;
@@ -27,5 +29,7 @@ export function LoadTasks():Promise<Array<pkg.Task>>;
 export function PickDirectory():Promise<string>;
 
 export function SaveSettings(arg1:Record<string, string>):Promise<void>;
+
+export function SendChatMessage(arg1:number,arg2:string):Promise<void>;
 
 export function SetWorkDir(arg1:string):Promise<void>;
