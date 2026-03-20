@@ -45,7 +45,7 @@ func (r *PostgresRepository) TruncateAll() {
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
-const pgTaskColumns = `id, title, prompt, spec, branch, pr_url, status, approved, session_id, worktree_path`
+const pgTaskColumns = `id, title, prompt, spec, branch, pr_url, status, approved, session_id, chat_session_id, worktree_path`
 
 func scanTaskRow(scanner interface {
 	Scan(dest ...any) error
@@ -53,7 +53,7 @@ func scanTaskRow(scanner interface {
 	var t Task
 	err := scanner.Scan(
 		&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL,
-		&t.Status, &t.Approved, &t.SessionID, &t.WorktreePath,
+		&t.Status, &t.Approved, &t.SessionID, &t.ChatSessionID, &t.WorktreePath,
 	)
 	return t, err
 }
@@ -61,9 +61,9 @@ func scanTaskRow(scanner interface {
 func (r *PostgresRepository) InsertTask(t Task) (int64, error) {
 	var id int64
 	err := r.db.QueryRow(
-		`INSERT INTO tasks (title, prompt, spec, branch, pr_url, status, approved, session_id, worktree_path)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-		t.Title, t.Prompt, t.Spec, t.Branch, t.PRURL, t.Status, t.Approved, t.SessionID, t.WorktreePath,
+		`INSERT INTO tasks (title, prompt, spec, branch, pr_url, status, approved, session_id, chat_session_id, worktree_path)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+		t.Title, t.Prompt, t.Spec, t.Branch, t.PRURL, t.Status, t.Approved, t.SessionID, t.ChatSessionID, t.WorktreePath,
 	).Scan(&id)
 	return id, err
 }
@@ -112,6 +112,11 @@ func (r *PostgresRepository) UpdateTaskPRURL(id int, prURL string) error {
 
 func (r *PostgresRepository) UpdateTaskSessionID(id int, sessionID string) error {
 	_, err := r.db.Exec(`UPDATE tasks SET session_id=$1 WHERE id=$2`, sessionID, id)
+	return err
+}
+
+func (r *PostgresRepository) UpdateTaskChatSessionID(id int, chatSessionID string) error {
+	_, err := r.db.Exec(`UPDATE tasks SET chat_session_id=$1 WHERE id=$2`, chatSessionID, id)
 	return err
 }
 

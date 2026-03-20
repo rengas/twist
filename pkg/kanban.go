@@ -28,8 +28,9 @@ type Task struct {
 	PRURL        string `json:"pr_url"`        // agent sets this after code phase
 	Status       string `json:"status"`        // prompt | spec | code | review | done | failed
 	Approved     bool   `json:"approved"`      // user sets true to let agent act; agent resets to false after each stage
-	SessionID    string `json:"session_id"`    // claude session ID for continuity across phases
-	WorktreePath string `json:"worktree_path"` // git worktree path for code isolation
+	SessionID     string `json:"session_id"`      // claude session ID for continuity across phases
+	ChatSessionID string `json:"chat_session_id"` // dedicated claude session ID for chat interactions
+	WorktreePath  string `json:"worktree_path"`   // git worktree path for code isolation
 }
 
 // ChatMessage represents a single message in a task's chat history.
