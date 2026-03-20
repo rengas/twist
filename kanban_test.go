@@ -573,6 +573,104 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+// ── Chat Message Tests ────────────────────────────────────────────────────────
+
+func TestPostgres_InsertAndGetChatMessages(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	taskID, _ := repo.InsertTask(pkg.Task{Title: "Chat Task", Status: "done", Prompt: "test"})
+
+	msg1, err := repo.InsertChatMessage(int(taskID), "user", "Hello Claude")
+	if err != nil {
+		t.Fatalf("insertChatMessage: %v", err)
+	}
+	if msg1.ID == 0 {
+		t.Fatal("expected non-zero message ID")
+	}
+	if msg1.Role != "user" || msg1.Content != "Hello Claude" {
+		t.Errorf("unexpected message: %+v", msg1)
+	}
+
+	msg2, err := repo.InsertChatMessage(int(taskID), "assistant", "Hi there!")
+	if err != nil {
+		t.Fatalf("insertChatMessage: %v", err)
+	}
+	if msg2.Role != "assistant" {
+		t.Errorf("expected assistant role, got %q", msg2.Role)
+	}
+
+	msgs, err := repo.GetChatMessages(int(taskID))
+	if err != nil {
+		t.Fatalf("getChatMessages: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if msgs[0].Role != "user" || msgs[1].Role != "assistant" {
+		t.Errorf("unexpected message order: %+v", msgs)
+	}
+}
+
+func TestPostgres_GetChatMessages_Empty(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	taskID, _ := repo.InsertTask(pkg.Task{Title: "No Chat", Status: "prompt"})
+
+	msgs, err := repo.GetChatMessages(int(taskID))
+	if err != nil {
+		t.Fatalf("getChatMessages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages, got %d", len(msgs))
+	}
+}
+
+func TestPostgres_ChatMessages_CascadeDelete(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	taskID, _ := repo.InsertTask(pkg.Task{Title: "Delete Me", Status: "prompt"})
+	repo.InsertChatMessage(int(taskID), "user", "test message")
+	repo.InsertChatMessage(int(taskID), "assistant", "response")
+
+	// Delete the task — chat messages should cascade.
+	if err := repo.DeleteTask(int(taskID)); err != nil {
+		t.Fatalf("deleteTask: %v", err)
+	}
+
+	msgs, err := repo.GetChatMessages(int(taskID))
+	if err != nil {
+		t.Fatalf("getChatMessages after delete: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages after cascade delete, got %d", len(msgs))
+	}
+}
+
+func TestPostgres_ChatMessages_MultipleTasksIsolated(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	taskA, _ := repo.InsertTask(pkg.Task{Title: "Task A", Status: "done"})
+	taskB, _ := repo.InsertTask(pkg.Task{Title: "Task B", Status: "done"})
+
+	repo.InsertChatMessage(int(taskA), "user", "msg for A")
+	repo.InsertChatMessage(int(taskA), "assistant", "reply for A")
+	repo.InsertChatMessage(int(taskB), "user", "msg for B")
+
+	msgsA, _ := repo.GetChatMessages(int(taskA))
+	msgsB, _ := repo.GetChatMessages(int(taskB))
+
+	if len(msgsA) != 2 {
+		t.Errorf("expected 2 messages for task A, got %d", len(msgsA))
+	}
+	if len(msgsB) != 1 {
+		t.Errorf("expected 1 message for task B, got %d", len(msgsB))
+	}
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func containsSubstring(s, sub string) bool {

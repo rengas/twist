@@ -1,11 +1,14 @@
 package pkg
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +28,8 @@ type App struct {
 	activeTasks   map[int]context.CancelFunc // prevents double-pickup of tasks
 	maxWorkers    int                        // max concurrent agent tasks
 	connected     bool                       // whether the database is connected
+	chatLocksMu   sync.Mutex                 // guards chatLocks map
+	chatLocks     map[int]bool               // prevents overlapping Claude chat invocations per task
 	loopCancel    context.CancelFunc         // cancels the current background loop
 }
 
@@ -34,6 +39,7 @@ func NewApp() *App {
 		workDir:     dir,
 		activeTasks: make(map[int]context.CancelFunc),
 		maxWorkers:  defaultMaxWorkers,
+		chatLocks:   make(map[int]bool),
 	}
 }
 
@@ -368,6 +374,138 @@ func (a *App) SaveSettings(settings map[string]string) error {
 			a.maxWorkers = n
 		}
 	}
+
+	return nil
+}
+
+// ── Chat API (exposed to Vue) ──────────────────────────────────────────────────
+
+// GetChatMessages returns stored chat history for a task.
+func (a *App) GetChatMessages(taskID int) []ChatMessage {
+	if a.repo == nil {
+		return []ChatMessage{}
+	}
+	msgs, err := a.repo.GetChatMessages(taskID)
+	if err != nil {
+		a.log(fmt.Sprintf("[ERROR] GetChatMessages: %v", err))
+		return []ChatMessage{}
+	}
+	if msgs == nil {
+		return []ChatMessage{}
+	}
+	return msgs
+}
+
+// SendChatMessage accepts a user message, invokes Claude with the task's session, and streams the response back.
+func (a *App) SendChatMessage(taskID int, message string) error {
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	// Acquire per-task chat lock.
+	a.chatLocksMu.Lock()
+	if a.chatLocks[taskID] {
+		a.chatLocksMu.Unlock()
+		return fmt.Errorf("chat already in progress for task #%d", taskID)
+	}
+	a.chatLocks[taskID] = true
+	a.chatLocksMu.Unlock()
+
+	// Look up the task.
+	task, err := a.repo.GetTaskByID(taskID)
+	if err != nil {
+		a.chatLocksMu.Lock()
+		delete(a.chatLocks, taskID)
+		a.chatLocksMu.Unlock()
+		return fmt.Errorf("task #%d not found: %w", taskID, err)
+	}
+
+	// Insert the user message.
+	userMsg, err := a.repo.InsertChatMessage(taskID, "user", message)
+	if err != nil {
+		a.chatLocksMu.Lock()
+		delete(a.chatLocks, taskID)
+		a.chatLocksMu.Unlock()
+		return fmt.Errorf("failed to save message: %w", err)
+	}
+
+	// Emit user message to frontend.
+	runtime.EventsEmit(a.ctx, "chat:message", userMsg)
+
+	// Determine working directory.
+	a.mu.Lock()
+	dir := a.workDir
+	a.mu.Unlock()
+	if task.WorktreePath != "" {
+		if _, err := os.Stat(task.WorktreePath); err == nil {
+			dir = task.WorktreePath
+		}
+	}
+
+	sessionID := task.SessionID
+
+	// Run Claude in a goroutine to avoid blocking.
+	go func() {
+		defer func() {
+			a.chatLocksMu.Lock()
+			delete(a.chatLocks, taskID)
+			a.chatLocksMu.Unlock()
+		}()
+
+		args := []string{"-p", "--dangerously-skip-permissions"}
+		if sessionID != "" {
+			args = append(args, "--session-id", sessionID)
+		}
+		args = append(args, message)
+		cmd := exec.Command("claude", args...)
+		cmd.Dir = dir
+
+		stdoutPipe, err := cmd.StdoutPipe()
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
+			return
+		}
+		stderrPipe, err := cmd.StderrPipe()
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
+			return
+		}
+		if err := cmd.Start(); err != nil {
+			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
+			return
+		}
+
+		// Drain stderr in background.
+		go func() {
+			scanner := bufio.NewScanner(stderrPipe)
+			for scanner.Scan() {
+				// Log stderr but don't emit to chat.
+				a.log(fmt.Sprintf("[CHAT ERR] Task #%d: %s", taskID, scanner.Text()))
+			}
+		}()
+
+		// Stream stdout line-by-line.
+		var fullResponse strings.Builder
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fullResponse.WriteString(line + "\n")
+			runtime.EventsEmit(a.ctx, "chat:stream", map[string]interface{}{"task_id": taskID, "chunk": line + "\n"})
+		}
+
+		if err := cmd.Wait(); err != nil {
+			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
+			return
+		}
+
+		// Save assistant response.
+		response := strings.TrimSpace(fullResponse.String())
+		if response != "" {
+			a.repo.InsertChatMessage(taskID, "assistant", response)
+		}
+
+		runtime.EventsEmit(a.ctx, "chat:done", map[string]interface{}{"task_id": taskID})
+	}()
 
 	return nil
 }

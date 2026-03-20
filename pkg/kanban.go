@@ -32,6 +32,15 @@ type Task struct {
 	WorktreePath string `json:"worktree_path"` // git worktree path for code isolation
 }
 
+// ChatMessage represents a single message in a task's chat history.
+type ChatMessage struct {
+	ID        int    `json:"id"`
+	TaskID    int    `json:"task_id"`
+	Role      string `json:"role"`       // "user" | "assistant"
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at"`
+}
+
 // DesignVersion represents one immutable snapshot of the shared design document.
 type DesignVersion struct {
 	ID        int    `json:"id"`
