@@ -4,7 +4,7 @@ import TaskCard from './TaskCard.vue'
 import TaskModal from './TaskModal.vue'
 
 const props = defineProps({ tasks: Array })
-const emit = defineEmits(['refresh'])
+const emit = defineEmits(['refresh', 'open-chat'])
 
 const selectedTask = ref(null)
 
@@ -49,7 +49,8 @@ function onModalClose() {
       <div class="flex flex-col gap-2 p-2 overflow-y-auto flex-1">
         <TaskCard v-for="task in tasksForColumn(col.key)" :key="task.id"
                   :task="task" :col-key="col.key"
-                  @click="openTask(task)" />
+                  @click="openTask(task)"
+                  @open-chat="(id) => emit('open-chat', id)" />
         <div v-if="tasksForColumn(col.key).length === 0"
              class="flex-1 flex items-center justify-center text-slate-600 text-xs py-6">
           Empty
@@ -58,5 +59,6 @@ function onModalClose() {
     </div>
   </div>
 
-  <TaskModal v-if="selectedTask" :task="selectedTask" @close="onModalClose" />
+  <TaskModal v-if="selectedTask" :task="selectedTask" @close="onModalClose"
+             @open-chat="(id) => { selectedTask = null; emit('open-chat', id) }" />
 </template>

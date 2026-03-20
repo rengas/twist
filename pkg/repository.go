@@ -30,6 +30,10 @@ type Repository interface {
 
 	// Cross-task context
 	GetTaskSpecs(excludeTaskID int, limit int) ([]TaskSpecSummary, error)
+
+	// Chat messages
+	InsertChatMessage(taskID int, role, content string) (ChatMessage, error)
+	GetChatMessages(taskID int) ([]ChatMessage, error)
 }
 
 // TaskSpecSummary is a lightweight view of a task for cross-task context injection.

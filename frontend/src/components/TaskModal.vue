@@ -1,14 +1,19 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { BrowserOpenURL, ClipboardSetText } from '../../wailsjs/runtime/runtime'
 import { ApproveTask, DeleteTask } from '../../wailsjs/go/pkg/App'
 
 const props = defineProps({ task: Object })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'open-chat'])
 
 const loading = ref(false)
 const error = ref('')
+const isSpecExpanded = ref(false)
+
+watch(() => props.task?.id, () => {
+  isSpecExpanded.value = false
+})
 const copyTaskFeedback = ref(false)
 const copyPRFeedback = ref(false)
 const copyBranchFeedback = ref(false)
@@ -181,10 +186,30 @@ function copyField(value, feedbackRef) {
           <p class="text-sm text-slate-300 bg-slate-900/50 rounded-lg px-3 py-2.5 leading-relaxed select-text">{{ task.prompt }}</p>
         </div>
 
-        <!-- Spec section -->
-        <div v-if="task.spec">
-          <h3 class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5 select-none">Spec</h3>
-          <div class="prose text-sm bg-slate-900/50 rounded-lg px-4 py-3 select-text" v-html="renderedSpec"></div>
+        <!-- Spec section (collapsible) -->
+        <div v-if="task.spec" class="spec-section">
+          <button
+            class="spec-toggle"
+            :aria-expanded="isSpecExpanded"
+            @click="isSpecExpanded = !isSpecExpanded"
+          >
+            <svg
+              class="chevron"
+              :class="{ 'chevron-expanded': isSpecExpanded }"
+              width="16" height="16" viewBox="0 0 16 16"
+              fill="currentColor"
+            >
+              <path d="M6 4l4 4-4 4" />
+            </svg>
+            <span class="spec-toggle-label">Spec</span>
+          </button>
+
+          <div
+            class="spec-content"
+            :class="{ 'spec-content-expanded': isSpecExpanded }"
+          >
+            <div class="prose text-sm bg-slate-900/50 rounded-lg px-4 py-3" v-html="renderedSpec"></div>
+          </div>
         </div>
         <div v-else-if="task.status !== 'prompt'" class="text-sm text-slate-600 italic">
           No spec yet — agent will generate it when approved.
@@ -200,6 +225,15 @@ function copyField(value, feedbackRef) {
 
         <div class="flex items-center gap-3">
           <p v-if="error" class="text-xs text-red-400">{{ error }}</p>
+
+          <button @click="emit('open-chat', task.id)"
+                  class="flex items-center gap-1.5 px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
+            Chat
+          </button>
 
           <button @click="emit('close')"
                   class="px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
@@ -232,3 +266,43 @@ function copyField(value, feedbackRef) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.spec-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.spec-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chevron {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.chevron-expanded {
+  transform: rotate(90deg);
+}
+
+.spec-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+}
+
+.spec-content-expanded {
+  max-height: 2000px;
+}
+</style>
