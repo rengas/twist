@@ -475,7 +475,7 @@ func runClaudeCapture(taskID int, prompt string, workDir string, sessionID strin
 func runClaudeStream(taskID int, prompt string, workDir string, sessionID string, log LogFunc) error {
 	args := []string{"-p", "--dangerously-skip-permissions", "--verbose"}
 	if sessionID != "" {
-		args = append(args, "--resume", sessionID)
+		args = append(args, "--session-id", sessionID)
 	}
 	args = append(args, prompt)
 	cmd := exec.Command("claude", args...)
