@@ -396,7 +396,9 @@ func (a *App) GetChatMessages(taskID int) []ChatMessage {
 	return msgs
 }
 
-// SendChatMessage accepts a user message, invokes Claude with the task's session, and streams the response back.
+// SendChatMessage accepts a user message, invokes Claude with a dedicated chat session, and streams the response back.
+// Uses a separate chat_session_id (not the workflow session_id) to avoid conflicts with spec/code phases.
+// Automatically retries once with a fresh session if a "already in use" conflict is detected.
 func (a *App) SendChatMessage(taskID int, message string) error {
 	if a.repo == nil {
 		return fmt.Errorf("database not connected")
@@ -442,7 +444,24 @@ func (a *App) SendChatMessage(taskID int, message string) error {
 		}
 	}
 
-	sessionID := task.SessionID
+	// Determine chat session ID (separate from workflow session_id).
+	isNewSession := task.ChatSessionID == ""
+	chatSessionID := task.ChatSessionID
+	if isNewSession {
+		chatSessionID = generateUUID()
+		if err := a.repo.UpdateTaskChatSessionID(taskID, chatSessionID); err != nil {
+			a.chatLocksMu.Lock()
+			delete(a.chatLocks, taskID)
+			a.chatLocksMu.Unlock()
+			return fmt.Errorf("failed to save chat session ID: %w", err)
+		}
+	}
+
+	// Build the message to send to Claude.
+	claudeMessage := message
+	if isNewSession {
+		claudeMessage = buildChatContextMessage(task.Title, task.Spec, message)
+	}
 
 	// Run Claude in a goroutine to avoid blocking.
 	go func() {
@@ -452,54 +471,26 @@ func (a *App) SendChatMessage(taskID int, message string) error {
 			a.chatLocksMu.Unlock()
 		}()
 
-		args := []string{"-p", "--dangerously-skip-permissions"}
-		if sessionID != "" {
-			args = append(args, "--session-id", sessionID)
-		}
-		args = append(args, message)
-		cmd := exec.Command("claude", args...)
-		cmd.Dir = dir
-
-		stdoutPipe, err := cmd.StdoutPipe()
-		if err != nil {
-			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
-			return
-		}
-		stderrPipe, err := cmd.StderrPipe()
-		if err != nil {
-			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
-			return
-		}
-		if err := cmd.Start(); err != nil {
-			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
-			return
-		}
-
-		// Drain stderr in background.
-		go func() {
-			scanner := bufio.NewScanner(stderrPipe)
-			for scanner.Scan() {
-				// Log stderr but don't emit to chat.
-				a.log(fmt.Sprintf("[CHAT ERR] Task #%d: %s", taskID, scanner.Text()))
+		response, err := a.invokeChatClaude(taskID, chatSessionID, claudeMessage, dir)
+		if err != nil && strings.Contains(err.Error(), "already in use") {
+			// Session conflict — generate a fresh session and retry once.
+			a.log(fmt.Sprintf("[CHAT] Task #%d: session conflict detected, retrying with new session", taskID))
+			chatSessionID = generateUUID()
+			if dbErr := a.repo.UpdateTaskChatSessionID(taskID, chatSessionID); dbErr != nil {
+				runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": dbErr.Error()})
+				return
 			}
-		}()
-
-		// Stream stdout line-by-line.
-		var fullResponse strings.Builder
-		scanner := bufio.NewScanner(stdoutPipe)
-		for scanner.Scan() {
-			line := scanner.Text()
-			fullResponse.WriteString(line + "\n")
-			runtime.EventsEmit(a.ctx, "chat:stream", map[string]interface{}{"task_id": taskID, "chunk": line + "\n"})
+			// Rebuild context-enriched message since new session has no history.
+			claudeMessage = buildChatContextMessage(task.Title, task.Spec, message)
+			response, err = a.invokeChatClaude(taskID, chatSessionID, claudeMessage, dir)
 		}
 
-		if err := cmd.Wait(); err != nil {
+		if err != nil {
 			runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{"task_id": taskID, "error": err.Error()})
 			return
 		}
 
 		// Save assistant response.
-		response := strings.TrimSpace(fullResponse.String())
 		if response != "" {
 			a.repo.InsertChatMessage(taskID, "assistant", response)
 		}
@@ -508,6 +499,82 @@ func (a *App) SendChatMessage(taskID int, message string) error {
 	}()
 
 	return nil
+}
+
+// invokeChatClaude runs the Claude CLI with the given chat session and message,
+// streaming stdout to the frontend. Returns the full response and any error.
+// If stderr contains "already in use", the error message will contain that substring.
+func (a *App) invokeChatClaude(taskID int, sessionID, message, dir string) (string, error) {
+	args := []string{"-p", "--dangerously-skip-permissions"}
+	if sessionID != "" {
+		args = append(args, "--session-id", sessionID)
+	}
+	args = append(args, message)
+	cmd := exec.Command("claude", args...)
+	cmd.Dir = dir
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", err
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+
+	// Drain stderr in background, capturing it for conflict detection.
+	var stderrBuf strings.Builder
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line + "\n")
+			a.log(fmt.Sprintf("[CHAT ERR] Task #%d: %s", taskID, line))
+		}
+	}()
+
+	// Stream stdout line-by-line.
+	var fullResponse strings.Builder
+	scanner := bufio.NewScanner(stdoutPipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+		fullResponse.WriteString(line + "\n")
+		runtime.EventsEmit(a.ctx, "chat:stream", map[string]interface{}{"task_id": taskID, "chunk": line + "\n"})
+	}
+
+	wg.Wait()
+	if err := cmd.Wait(); err != nil {
+		// Include stderr in the error so callers can detect "already in use".
+		stderrStr := stderrBuf.String()
+		if strings.Contains(stderrStr, "already in use") {
+			return "", fmt.Errorf("session already in use")
+		}
+		return "", fmt.Errorf("claude exited with error: %v (stderr: %s)", err, stderrStr)
+	}
+
+	return strings.TrimSpace(fullResponse.String()), nil
+}
+
+// buildChatContextMessage wraps the user's message with task context for a new chat session.
+func buildChatContextMessage(title, spec, userMessage string) string {
+	return fmt.Sprintf(`You are assisting with a software task.
+
+Task: %s
+
+Specification:
+%s
+
+The user wants to discuss this task with you. Respond to their message below.
+
+---
+
+%s`, title, spec, userMessage)
 }
 
 // ── Background Loop ───────────────────────────────────────────────────────────

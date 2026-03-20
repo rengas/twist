@@ -66,6 +66,7 @@ export namespace pkg {
 	    status: string;
 	    approved: boolean;
 	    session_id: string;
+	    chat_session_id: string;
 	    worktree_path: string;
 	
 	    static createFrom(source: any = {}) {
@@ -83,6 +84,7 @@ export namespace pkg {
 	        this.status = source["status"];
 	        this.approved = source["approved"];
 	        this.session_id = source["session_id"];
+	        this.chat_session_id = source["chat_session_id"];
 	        this.worktree_path = source["worktree_path"];
 	    }
 	}
