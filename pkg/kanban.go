@@ -3,7 +3,6 @@ package pkg
 import (
 	"bufio"
 	"crypto/rand"
-	"database/sql"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 // Task represents a card on the Kanban board.
@@ -48,240 +45,21 @@ type DesignVersion struct {
 // LogFunc is called for each log line emitted during agent execution.
 type LogFunc func(msg string)
 
-// ── Database helpers ───────────────────────────────────────────────────────────
-
-func dbPath(dir string) string {
-	if dir == "" || dir == "." {
-		return "twist.db"
-	}
-	return filepath.Join(dir, "twist.db")
-}
-
-const schema = `
-CREATE TABLE IF NOT EXISTS tasks (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    title         TEXT    NOT NULL DEFAULT '',
-    prompt        TEXT    NOT NULL DEFAULT '',
-    spec          TEXT    NOT NULL DEFAULT '',
-    branch        TEXT    NOT NULL DEFAULT '',
-    pr_url        TEXT    NOT NULL DEFAULT '',
-    status        TEXT    NOT NULL DEFAULT 'prompt',
-    approved      INTEGER NOT NULL DEFAULT 0,
-    session_id    TEXT    NOT NULL DEFAULT '',
-    worktree_path TEXT    NOT NULL DEFAULT ''
-);`
-
-const settingsSchema = `
-CREATE TABLE IF NOT EXISTS settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL DEFAULT ''
-);`
-
-const designVersionsSchema = `
-CREATE TABLE IF NOT EXISTS design_versions (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    version    INTEGER NOT NULL,
-    content    TEXT    NOT NULL DEFAULT '',
-    task_id    INTEGER NOT NULL,
-    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-    summary    TEXT    NOT NULL DEFAULT ''
-);`
-
-func OpenDB(dir string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath(dir))
-	if err != nil {
-		return nil, err
-	}
-	// Serialize all writes through one connection; SQLite allows only one writer at a time.
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
-		return nil, err
-	}
-	// Wait up to 5 s before returning SQLITE_BUSY on write contention.
-	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
-		return nil, err
-	}
-	if err := createSchema(db); err != nil {
-		return nil, err
-	}
-	return db, nil
-}
-
-func createSchema(db *sql.DB) error {
-	if _, err := db.Exec(schema); err != nil {
-		return err
-	}
-	if _, err := db.Exec(settingsSchema); err != nil {
-		return err
-	}
-	if _, err := db.Exec(designVersionsSchema); err != nil {
-		return err
-	}
-	// Migrations for existing databases that lack newer columns.
-	db.Exec(`ALTER TABLE tasks ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''`)
-	db.Exec(`ALTER TABLE tasks ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`)
-	db.Exec(`ALTER TABLE tasks ADD COLUMN worktree_path TEXT NOT NULL DEFAULT ''`)
-	return nil
-}
-
-func GetSetting(db *sql.DB, key string) (string, error) {
-	var value string
-	err := db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return value, err
-}
-
-func SetSetting(db *sql.DB, key, value string) error {
-	_, err := db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)`, key, value)
-	return err
-}
-
-func scanTask(row *sql.Row) (Task, error) {
-	var t Task
-	var approved int
-	err := row.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL, &t.Status, &approved, &t.SessionID, &t.WorktreePath)
-	t.Approved = approved == 1
-	return t, err
-}
-
-const taskColumns = `id, title, prompt, spec, branch, pr_url, status, approved, session_id, worktree_path`
-
-func loadTasks(db *sql.DB) ([]Task, error) {
-	rows, err := db.Query(`SELECT ` + taskColumns + ` FROM tasks ORDER BY id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var tasks []Task
-	for rows.Next() {
-		var t Task
-		var approved int
-		if err := rows.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL, &t.Status, &approved, &t.SessionID, &t.WorktreePath); err != nil {
-			return nil, err
-		}
-		t.Approved = approved == 1
-		tasks = append(tasks, t)
-	}
-	return tasks, rows.Err()
-}
-
-func insertTask(db *sql.DB, t Task) (int64, error) {
-	res, err := db.Exec(
-		`INSERT INTO tasks (title, prompt, spec, branch, pr_url, status, approved, session_id, worktree_path) VALUES (?,?,?,?,?,?,?,?,?)`,
-		t.Title, t.Prompt, t.Spec, t.Branch, t.PRURL, t.Status, boolToInt(t.Approved), t.SessionID, t.WorktreePath,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
-}
-
-func updateTaskStatus(db *sql.DB, id int, status string, approved bool) error {
-	_, err := db.Exec(
-		`UPDATE tasks SET status=?, approved=? WHERE id=?`,
-		status, boolToInt(approved), id,
-	)
-	return err
-}
-
-func updateTaskSpec(db *sql.DB, id int, spec string) error {
-	_, err := db.Exec(`UPDATE tasks SET spec=? WHERE id=?`, spec, id)
-	return err
-}
-
-func updateTaskBranch(db *sql.DB, id int, branch string) error {
-	_, err := db.Exec(`UPDATE tasks SET branch=? WHERE id=?`, branch, id)
-	return err
-}
-
-func updateTaskPRURL(db *sql.DB, id int, prURL string) error {
-	_, err := db.Exec(`UPDATE tasks SET pr_url=? WHERE id=?`, prURL, id)
-	return err
-}
-
-func updateTaskSessionID(db *sql.DB, id int, sessionID string) error {
-	_, err := db.Exec(`UPDATE tasks SET session_id=? WHERE id=?`, sessionID, id)
-	return err
-}
-
-func updateTaskWorktreePath(db *sql.DB, id int, path string) error {
-	_, err := db.Exec(`UPDATE tasks SET worktree_path=? WHERE id=?`, path, id)
-	return err
-}
-
-func deleteTask(db *sql.DB, id int) error {
-	_, err := db.Exec(`DELETE FROM tasks WHERE id=?`, id)
-	return err
-}
-
-func getTaskByID(db *sql.DB, id int) (Task, error) {
-	row := db.QueryRow(`SELECT `+taskColumns+` FROM tasks WHERE id=?`, id)
-	return scanTask(row)
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func findActionableDB(db *sql.DB) (Task, bool, error) {
-	row := db.QueryRow(
-		`SELECT `+taskColumns+` FROM tasks
-         WHERE approved=1 AND status IN ('prompt','code')
-         ORDER BY id LIMIT 1`,
-	)
-	t, err := scanTask(row)
-	if err == sql.ErrNoRows {
-		return Task{}, false, nil
-	}
-	return t, err == nil, err
-}
-
-func findActionableTasksDB(db *sql.DB) ([]Task, error) {
-	rows, err := db.Query(
-		`SELECT `+taskColumns+` FROM tasks
-         WHERE approved=1 AND status IN ('prompt','code')
-         ORDER BY id`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var tasks []Task
-	for rows.Next() {
-		var t Task
-		var approved int
-		if err := rows.Scan(&t.ID, &t.Title, &t.Prompt, &t.Spec, &t.Branch, &t.PRURL, &t.Status, &approved, &t.SessionID, &t.WorktreePath); err != nil {
-			return nil, err
-		}
-		t.Approved = approved == 1
-		tasks = append(tasks, t)
-	}
-	return tasks, rows.Err()
-}
-
 // ── Lane Handlers ─────────────────────────────────────────────────────────────
 
-// handlePrompt: reads the user's prompt, writes a spec, moves task to 'spec' lane.
-func handlePrompt(task Task, workDir string, db *sql.DB, designMu *sync.Mutex, log LogFunc) error {
+// handlePrompt reads the user's prompt, writes a spec, moves task to 'spec' lane.
+func handlePrompt(task Task, workDir string, repo Repository, designMu *sync.Mutex, log LogFunc) error {
 	log(fmt.Sprintf("[SPEC] Task #%d: Writing spec for — %s", task.ID, task.Title))
 
 	// Generate a session ID for this task so claude remembers the conversation.
 	sessionID := generateUUID()
-	if err := updateTaskSessionID(db, task.ID, sessionID); err != nil {
+	if err := repo.UpdateTaskSessionID(task.ID, sessionID); err != nil {
 		return err
 	}
 
 	// Read latest design doc + cross-task context for the prompt.
 	designContent := readDesignContent(workDir)
-	crossCtx, _ := buildTaskContext(db, task.ID)
+	crossCtx := buildTaskContext(repo, task.ID)
 
 	var contextBlock string
 	if designContent != "" {
@@ -310,24 +88,24 @@ Return ONLY the markdown spec, no other commentary.`, task.Prompt, contextBlock)
 	}
 
 	trimmedSpec := strings.TrimSpace(spec)
-	if err := updateTaskSpec(db, task.ID, trimmedSpec); err != nil {
+	if err := repo.UpdateTaskSpec(task.ID, trimmedSpec); err != nil {
 		return err
 	}
-	if err := updateTaskStatus(db, task.ID, "spec", false); err != nil {
+	if err := repo.UpdateTaskStatus(task.ID, "spec", false); err != nil {
 		return err
 	}
 
 	// Append spec summary to design document.
 	summary := fmt.Sprintf("Task #%d spec: %s", task.ID, task.Title)
 	section := fmt.Sprintf("## Task #%d: %s (Spec)\n\n%s\n", task.ID, task.Title, truncate(trimmedSpec, 500))
-	appendDesignVersion(db, designMu, workDir, task.ID, section, summary)
+	appendDesignVersion(repo, designMu, workDir, task.ID, section, summary)
 
 	log(fmt.Sprintf("[SPEC READY] Task #%d: Spec written. Set status → 'code' + approved → true to approve.", task.ID))
 	return nil
 }
 
-// handleCode: creates a git worktree, runs claude to implement and commit, moves task to 'review' lane.
-func handleCode(task Task, workDir string, db *sql.DB, designMu *sync.Mutex, log LogFunc) error {
+// handleCode creates a git worktree, runs claude to implement and commit, moves task to 'review' lane.
+func handleCode(task Task, workDir string, repo Repository, designMu *sync.Mutex, log LogFunc) error {
 	log(fmt.Sprintf("[CODE] Task #%d: Implementing — %s", task.ID, task.Title))
 
 	branch := fmt.Sprintf("feature/task-%d-%s", task.ID, slugify(task.Title))
@@ -339,10 +117,10 @@ func handleCode(task Task, workDir string, db *sql.DB, designMu *sync.Mutex, log
 	}
 	log(fmt.Sprintf("[GIT] Created worktree: %s (branch: %s)", wtPath, branch))
 
-	if err := updateTaskBranch(db, task.ID, branch); err != nil {
+	if err := repo.UpdateTaskBranch(task.ID, branch); err != nil {
 		return err
 	}
-	if err := updateTaskWorktreePath(db, task.ID, wtPath); err != nil {
+	if err := repo.UpdateTaskWorktreePath(task.ID, wtPath); err != nil {
 		return err
 	}
 
@@ -365,7 +143,7 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 		log(fmt.Sprintf("[FAILED] Task #%d implementation error: %v", task.ID, err))
 		log(fmt.Sprintf("         Worktree preserved at: %s", wtPath))
 		log("         Fix the issue manually, then set status → 'code' + approved → true to retry.")
-		_ = updateTaskStatus(db, task.ID, "failed", false)
+		_ = repo.UpdateTaskStatus(task.ID, "failed", false)
 		return nil
 	}
 
@@ -373,7 +151,7 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 	log(fmt.Sprintf("[GIT] Pushing branch: %s", branch))
 	if out, err := gitCmd(wtPath, "push", "-u", "origin", branch); err != nil {
 		log(fmt.Sprintf("[FAILED] Task #%d push error: %v\n%s", task.ID, err, out))
-		_ = updateTaskStatus(db, task.ID, "failed", false)
+		_ = repo.UpdateTaskStatus(task.ID, "failed", false)
 		return nil
 	}
 
@@ -386,17 +164,17 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 	)
 	if err != nil {
 		log(fmt.Sprintf("[FAILED] Task #%d PR creation error: %v\n%s", task.ID, err, prOut))
-		_ = updateTaskStatus(db, task.ID, "failed", false)
+		_ = repo.UpdateTaskStatus(task.ID, "failed", false)
 		return nil
 	}
 
 	prURL := strings.TrimSpace(prOut)
 	log(fmt.Sprintf("[PR RAISED] %s", prURL))
 
-	if err := updateTaskPRURL(db, task.ID, prURL); err != nil {
+	if err := repo.UpdateTaskPRURL(task.ID, prURL); err != nil {
 		return err
 	}
-	if err := updateTaskStatus(db, task.ID, "review", false); err != nil {
+	if err := repo.UpdateTaskStatus(task.ID, "review", false); err != nil {
 		return err
 	}
 
@@ -404,14 +182,14 @@ Do not ask for permission — implement, test, and commit.`, task.Spec, branch)
 	if err := removeWorktree(workDir, wtPath); err != nil {
 		log(fmt.Sprintf("[WARN] Task #%d: failed to remove worktree: %v", task.ID, err))
 	}
-	_ = updateTaskWorktreePath(db, task.ID, "")
+	_ = repo.UpdateTaskWorktreePath(task.ID, "")
 
 	// Get files changed and append to design document.
 	filesOut, _ := gitCmd(workDir, "diff", "--name-only", "HEAD", branch)
 	summary := fmt.Sprintf("Task #%d code: %s", task.ID, task.Title)
 	section := fmt.Sprintf("## Task #%d: %s (Code Complete)\n\nPR: %s\nFiles changed:\n%s\n",
 		task.ID, task.Title, prURL, strings.TrimSpace(filesOut))
-	appendDesignVersion(db, designMu, workDir, task.ID, section, summary)
+	appendDesignVersion(repo, designMu, workDir, task.ID, section, summary)
 
 	log(fmt.Sprintf("[REVIEW READY] Task #%d: PR created on branch '%s'. Review the PR and approve to move to done.", task.ID, branch))
 	return nil
@@ -552,38 +330,6 @@ func ghCmd(workDir string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-
-func slugify(s string) string {
-	s = strings.ToLower(s)
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == ' ' || r == '-' || r == '_':
-			b.WriteRune('-')
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-func generateUUID() string {
-	var buf [16]byte
-	_, _ = rand.Read(buf[:])
-	buf[6] = (buf[6] & 0x0f) | 0x40 // version 4
-	buf[8] = (buf[8] & 0x3f) | 0x80 // variant
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:16])
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
-}
-
 // ── Git Worktree Helpers ──────────────────────────────────────────────────────
 
 func worktreeDir(workDir string) string {
@@ -618,15 +364,14 @@ func removeWorktree(workDir, wtPath string) error {
 }
 
 // cleanOrphanWorktrees removes worktrees not linked to active tasks.
-func cleanOrphanWorktrees(workDir string, db *sql.DB, log LogFunc) {
+func cleanOrphanWorktrees(workDir string, repo Repository, log LogFunc) {
 	dir := worktreeDir(workDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return // directory doesn't exist yet, that's fine
 	}
 
-	// Collect active worktree paths.
-	tasks, err := loadTasks(db)
+	tasks, err := repo.LoadTasks()
 	if err != nil {
 		return
 	}
@@ -648,59 +393,10 @@ func cleanOrphanWorktrees(workDir string, db *sql.DB, log LogFunc) {
 		}
 	}
 
-	// Prune any stale worktree entries in git.
 	_, _ = gitCmd(workDir, "worktree", "prune")
 }
 
 // ── Design Document Helpers ───────────────────────────────────────────────────
-
-func getLatestDesignVersion(db *sql.DB) (int, string, error) {
-	var version int
-	var content string
-	err := db.QueryRow(`SELECT version, content FROM design_versions ORDER BY version DESC LIMIT 1`).Scan(&version, &content)
-	if err == sql.ErrNoRows {
-		return 0, "", nil
-	}
-	return version, content, err
-}
-
-func appendDesignVersion(db *sql.DB, designMu *sync.Mutex, workDir string, taskID int, section, summary string) {
-	designMu.Lock()
-	defer designMu.Unlock()
-
-	version, existing, _ := getLatestDesignVersion(db)
-	newContent := existing
-	if newContent != "" {
-		newContent += "\n\n"
-	}
-	newContent += section
-	newVersion := version + 1
-
-	_, _ = db.Exec(
-		`INSERT INTO design_versions (version, content, task_id, summary) VALUES (?,?,?,?)`,
-		newVersion, newContent, taskID, summary,
-	)
-
-	// Write DESIGN.md to disk so agents can read it.
-	_ = os.WriteFile(filepath.Join(workDir, "DESIGN.md"), []byte(newContent), 0644)
-}
-
-func getDesignHistory(db *sql.DB) ([]DesignVersion, error) {
-	rows, err := db.Query(`SELECT id, version, content, task_id, created_at, summary FROM design_versions ORDER BY version DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var versions []DesignVersion
-	for rows.Next() {
-		var v DesignVersion
-		if err := rows.Scan(&v.ID, &v.Version, &v.Content, &v.TaskID, &v.CreatedAt, &v.Summary); err != nil {
-			return nil, err
-		}
-		versions = append(versions, v)
-	}
-	return versions, rows.Err()
-}
 
 func readDesignContent(workDir string) string {
 	data, err := os.ReadFile(filepath.Join(workDir, "DESIGN.md"))
@@ -710,25 +406,66 @@ func readDesignContent(workDir string) string {
 	return string(data)
 }
 
-// buildTaskContext returns truncated specs from other tasks for cross-task awareness.
-func buildTaskContext(db *sql.DB, excludeTaskID int) (string, error) {
-	rows, err := db.Query(
-		`SELECT id, title, spec FROM tasks WHERE spec != '' AND id != ? ORDER BY id DESC LIMIT 10`,
-		excludeTaskID,
-	)
-	if err != nil {
-		return "", err
+func appendDesignVersion(repo Repository, designMu *sync.Mutex, workDir string, taskID int, section, summary string) {
+	designMu.Lock()
+	defer designMu.Unlock()
+
+	version, existing, _ := repo.GetLatestDesignVersion()
+	newContent := existing
+	if newContent != "" {
+		newContent += "\n\n"
 	}
-	defer rows.Close()
+	newContent += section
+	newVersion := version + 1
+
+	_ = repo.InsertDesignVersion(newVersion, newContent, taskID, summary)
+
+	// Write DESIGN.md to disk so agents can read it.
+	_ = os.WriteFile(filepath.Join(workDir, "DESIGN.md"), []byte(newContent), 0644)
+}
+
+// buildTaskContext returns truncated specs from other tasks for cross-task awareness.
+func buildTaskContext(repo Repository, excludeTaskID int) string {
+	specs, err := repo.GetTaskSpecs(excludeTaskID, 10)
+	if err != nil || len(specs) == 0 {
+		return ""
+	}
 
 	var parts []string
-	for rows.Next() {
-		var id int
-		var title, spec string
-		if err := rows.Scan(&id, &title, &spec); err != nil {
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("### Task #%d: %s\n%s", id, title, truncate(spec, 500)))
+	for _, s := range specs {
+		parts = append(parts, fmt.Sprintf("### Task #%d: %s\n%s", s.ID, s.Title, truncate(s.Spec, 500)))
 	}
-	return strings.Join(parts, "\n\n"), rows.Err()
+	return strings.Join(parts, "\n\n")
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+func slugify(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '_':
+			b.WriteRune('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func generateUUID() string {
+	var buf [16]byte
+	_, _ = rand.Read(buf[:])
+	buf[6] = (buf[6] & 0x0f) | 0x40 // version 4
+	buf[8] = (buf[8] & 0x3f) | 0x80 // variant
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:16])
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }

@@ -10,12 +10,20 @@ export function ApproveTask(arg1) {
   return window['go']['pkg']['App']['ApproveTask'](arg1);
 }
 
+export function ConnectDB(arg1) {
+  return window['go']['pkg']['App']['ConnectDB'](arg1);
+}
+
 export function DeleteTask(arg1) {
   return window['go']['pkg']['App']['DeleteTask'](arg1);
 }
 
 export function GetActiveCount() {
   return window['go']['pkg']['App']['GetActiveCount']();
+}
+
+export function GetDBStatus() {
+  return window['go']['pkg']['App']['GetDBStatus']();
 }
 
 export function GetDesignDoc() {

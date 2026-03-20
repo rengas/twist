@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS design_versions;
+DROP TABLE IF EXISTS settings;
+DROP TABLE IF EXISTS tasks;

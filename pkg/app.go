@@ -2,7 +2,6 @@ package pkg
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,12 +18,13 @@ const defaultMaxWorkers = 3
 type App struct {
 	ctx           context.Context
 	workDir       string
-	mu            sync.Mutex // guards workDir string access only
-	db            *sql.DB
-	designMu      sync.Mutex                // serializes writes to design document
-	activeTasksMu sync.Mutex                // guards activeTasks map
+	mu            sync.Mutex                 // guards workDir string access only
+	repo          Repository                 // database repository
+	designMu      sync.Mutex                 // serializes writes to design document
+	activeTasksMu sync.Mutex                 // guards activeTasks map
 	activeTasks   map[int]context.CancelFunc // prevents double-pickup of tasks
 	maxWorkers    int                        // max concurrent agent tasks
+	connected     bool                       // whether the database is connected
 }
 
 func NewApp() *App {
@@ -39,44 +39,142 @@ func NewApp() *App {
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
-	db, err := OpenDB(a.workDir)
-	if err != nil {
-		a.log(fmt.Sprintf("[ERROR] Failed to open DB: %v", err))
-		return
-	}
-	a.db = db
-
-	// Load persisted working directory; if valid and different, switch to saved project DB.
-	if saved, err := GetSetting(db, "workDir"); err == nil && saved != "" && saved != a.workDir {
-		if newDB, err := OpenDB(saved); err == nil {
-			db.Close()
-			a.db = newDB
-			a.workDir = saved
+	// Try to connect using env var first, then config file.
+	dbURL := os.Getenv("TWIST_DATABASE_URL")
+	if dbURL == "" {
+		if cfg, err := LoadConfig(); err == nil && cfg.DatabaseURL != "" {
+			dbURL = cfg.DatabaseURL
 		}
 	}
 
+	if dbURL != "" {
+		if err := a.connectDB(dbURL); err != nil {
+			a.log(fmt.Sprintf("[ERROR] Failed to connect to database: %v", err))
+		}
+	}
+
+	// Emit initial state so frontend knows whether we're connected.
+	a.emitDBStatus()
+}
+
+// ── Database Connection (exposed to Vue) ──────────────────────────────────────
+
+// DBStatus represents the current database connection state.
+type DBStatus struct {
+	Connected   bool   `json:"connected"`
+	DatabaseURL string `json:"database_url"`
+}
+
+// GetDBStatus returns the current database connection status.
+func (a *App) GetDBStatus() DBStatus {
+	url := ""
+	if cfg, err := LoadConfig(); err == nil {
+		url = cfg.DatabaseURL
+	}
+	if envURL := os.Getenv("TWIST_DATABASE_URL"); envURL != "" {
+		url = envURL
+	}
+	return DBStatus{
+		Connected:   a.connected,
+		DatabaseURL: url,
+	}
+}
+
+// ConnectDB connects to a PostgreSQL database, pings it, saves the URL to config,
+// and starts the background loop. This is called from the frontend.
+func (a *App) ConnectDB(databaseURL string) error {
+	if databaseURL == "" {
+		return fmt.Errorf("database URL is required")
+	}
+
+	if err := a.connectDB(databaseURL); err != nil {
+		return err
+	}
+
+	// Save URL to config for future startups.
+	if err := SaveConfig(&Config{DatabaseURL: databaseURL}); err != nil {
+		a.log(fmt.Sprintf("[WARN] Could not save config: %v", err))
+	}
+
+	return nil
+}
+
+// connectDB is the internal connect + initialize method.
+func (a *App) connectDB(databaseURL string) error {
+	repo, err := NewPostgresRepository(databaseURL)
+	if err != nil {
+		return err
+	}
+
+	// Close previous connection if any.
+	if a.repo != nil {
+		a.repo.Close()
+	}
+
+	a.log("[DB] Connected to PostgreSQL")
+
+	// Run file-based migrations. Progress is emitted to the frontend.
+	result, err := RunMigrations(databaseURL, func(status MigrationStatus) {
+		a.log(fmt.Sprintf("[MIGRATE] %s", status.Description))
+		a.emitMigrationStatus(status)
+	})
+	if err != nil {
+		repo.Close()
+		return fmt.Errorf("migration failed: %w", err)
+	}
+	if result.Applied > 0 {
+		a.log(fmt.Sprintf("[MIGRATE] %d migration(s) applied (total: %d)", result.Applied, result.Total))
+	}
+
+	a.repo = repo
+	a.connected = true
+
+	// Load persisted working directory.
+	if saved, err := repo.GetSetting("workDir"); err == nil && saved != "" {
+		a.mu.Lock()
+		a.workDir = saved
+		a.mu.Unlock()
+	}
+
 	// Load max workers setting.
-	if val, err := GetSetting(a.db, "maxWorkers"); err == nil && val != "" {
+	if val, err := repo.GetSetting("maxWorkers"); err == nil && val != "" {
 		if n, err := strconv.Atoi(val); err == nil && n >= 1 && n <= 10 {
 			a.maxWorkers = n
 		}
 	}
 
 	// Clean up orphan worktrees from previous runs.
-	cleanOrphanWorktrees(a.workDir, a.db, a.log)
+	cleanOrphanWorktrees(a.workDir, repo, a.log)
 
 	a.emitTasks()
+	a.emitDBStatus()
 	go a.runLoop()
+
+	return nil
+}
+
+func (a *App) emitDBStatus() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, "db:status", a.GetDBStatus())
+}
+
+func (a *App) emitMigrationStatus(status MigrationStatus) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, "migration:status", status)
 }
 
 // ── Exposed to Vue ────────────────────────────────────────────────────────────
 
 // LoadTasks returns all tasks from the database.
 func (a *App) LoadTasks() []Task {
-	if a.db == nil {
+	if a.repo == nil {
 		return []Task{}
 	}
-	tasks, err := loadTasks(a.db)
+	tasks, err := a.repo.LoadTasks()
 	if err != nil {
 		a.log(fmt.Sprintf("[ERROR] %v", err))
 		return []Task{}
@@ -89,10 +187,10 @@ func (a *App) LoadTasks() []Task {
 
 // AddTask creates a new task in the prompt lane (not yet approved).
 func (a *App) AddTask(title, prompt string) error {
-	if a.db == nil {
-		return fmt.Errorf("database not initialised")
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
 	}
-	_, err := insertTask(a.db, Task{
+	_, err := a.repo.InsertTask(Task{
 		Title:    title,
 		Prompt:   prompt,
 		Status:   "prompt",
@@ -110,19 +208,13 @@ func (a *App) AddTask(title, prompt string) error {
 // review → sets status to "done" (terminal) and approved to false
 // prompt/code → just sets approved to true
 func (a *App) ApproveTask(id int) error {
-	if a.db == nil {
-		return fmt.Errorf("database not initialised")
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
 	}
 
-	row := a.db.QueryRow(
-		`SELECT `+taskColumns+` FROM tasks WHERE id=?`, id,
-	)
-	task, err := scanTask(row)
-	if err == sql.ErrNoRows {
-		return fmt.Errorf("task #%d not found", id)
-	}
+	task, err := a.repo.GetTaskByID(id)
 	if err != nil {
-		return err
+		return fmt.Errorf("task #%d not found: %w", id, err)
 	}
 
 	newStatus := task.Status
@@ -135,7 +227,7 @@ func (a *App) ApproveTask(id int) error {
 		approved = false // done is terminal, no agent action needed
 	}
 
-	if err := updateTaskStatus(a.db, id, newStatus, approved); err != nil {
+	if err := a.repo.UpdateTaskStatus(id, newStatus, approved); err != nil {
 		return err
 	}
 	a.emitTasks()
@@ -144,12 +236,12 @@ func (a *App) ApproveTask(id int) error {
 
 // DeleteTask removes a task by ID, cleaning up its worktree if present.
 func (a *App) DeleteTask(id int) error {
-	if a.db == nil {
-		return fmt.Errorf("database not initialised")
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
 	}
 
 	// Clean up worktree if the task has one.
-	task, err := getTaskByID(a.db, id)
+	task, err := a.repo.GetTaskByID(id)
 	if err == nil && task.WorktreePath != "" {
 		a.mu.Lock()
 		dir := a.workDir
@@ -167,7 +259,7 @@ func (a *App) DeleteTask(id int) error {
 	}
 	a.activeTasksMu.Unlock()
 
-	if err := deleteTask(a.db, id); err != nil {
+	if err := a.repo.DeleteTask(id); err != nil {
 		return err
 	}
 	a.emitTasks()
@@ -194,7 +286,6 @@ func (a *App) PickDirectory() (string, error) {
 }
 
 // SetWorkDir changes the working directory to the provided path.
-// It is also exposed as an IPC method for direct path setting.
 func (a *App) SetWorkDir(path string) error {
 	if path == "" {
 		return nil
@@ -202,8 +293,7 @@ func (a *App) SetWorkDir(path string) error {
 	return a.changeWorkDir(path)
 }
 
-// changeWorkDir switches the app to a new working directory: updates a.workDir,
-// reopens the database, and emits updated tasks.
+// changeWorkDir switches the app to a new working directory.
 func (a *App) changeWorkDir(dir string) error {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -214,14 +304,10 @@ func (a *App) changeWorkDir(dir string) error {
 	a.workDir = abs
 	a.mu.Unlock()
 
-	if a.db != nil {
-		a.db.Close()
+	// Persist the setting.
+	if a.repo != nil {
+		_ = a.repo.SetSetting("workDir", abs)
 	}
-	db, err := OpenDB(abs)
-	if err != nil {
-		return err
-	}
-	a.db = db
 
 	a.emitTasks()
 	a.log(fmt.Sprintf("[CONFIG] Working directory set to: %s", abs))
@@ -240,15 +326,15 @@ func (a *App) GetSettings() (map[string]string, error) {
 // SaveSettings persists the provided key/value pairs and applies any settings
 // that require runtime side-effects (e.g., workDir change).
 func (a *App) SaveSettings(settings map[string]string) error {
-	if a.db == nil {
-		return fmt.Errorf("database not initialised")
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
 	}
 
 	oldWorkDir := a.workDir
 
-	// Persist each setting to the current DB before potentially switching.
+	// Persist each setting.
 	for key, value := range settings {
-		if err := SetSetting(a.db, key, value); err != nil {
+		if err := a.repo.SetSetting(key, value); err != nil {
 			return err
 		}
 	}
@@ -276,7 +362,7 @@ func (a *App) runLoop() {
 	for {
 		time.Sleep(2 * time.Second)
 
-		if a.db == nil {
+		if a.repo == nil || !a.connected {
 			continue
 		}
 
@@ -284,7 +370,7 @@ func (a *App) runLoop() {
 		dir := a.workDir
 		a.mu.Unlock()
 
-		tasks, err := findActionableTasksDB(a.db)
+		tasks, err := a.repo.FindActionableTasks()
 		if err != nil {
 			a.log(fmt.Sprintf("[ERROR] %v", err))
 			continue
@@ -325,9 +411,9 @@ func (a *App) processTask(ctx context.Context, task Task, dir string) {
 	var handlerErr error
 	switch task.Status {
 	case "prompt":
-		handlerErr = handlePrompt(task, dir, a.db, &a.designMu, a.log)
+		handlerErr = handlePrompt(task, dir, a.repo, &a.designMu, a.log)
 	case "code":
-		handlerErr = handleCode(task, dir, a.db, &a.designMu, a.log)
+		handlerErr = handleCode(task, dir, a.repo, &a.designMu, a.log)
 	}
 
 	if handlerErr != nil {
@@ -347,10 +433,10 @@ func (a *App) GetDesignDoc() string {
 
 // GetDesignHistory returns all design document versions.
 func (a *App) GetDesignHistory() []DesignVersion {
-	if a.db == nil {
+	if a.repo == nil {
 		return []DesignVersion{}
 	}
-	versions, err := getDesignHistory(a.db)
+	versions, err := a.repo.GetDesignHistory()
 	if err != nil {
 		return []DesignVersion{}
 	}
@@ -374,9 +460,9 @@ func (a *App) emitTasks() {
 		return
 	}
 	var tasks []Task
-	if a.db != nil {
+	if a.repo != nil {
 		var err error
-		tasks, err = loadTasks(a.db)
+		tasks, err = a.repo.LoadTasks()
 		if err != nil {
 			tasks = []Task{}
 		}
