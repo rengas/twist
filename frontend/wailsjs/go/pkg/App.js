@@ -14,6 +14,10 @@ export function ApproveTask(arg1) {
   return window['go']['pkg']['App']['ApproveTask'](arg1);
 }
 
+export function ArchiveTask(arg1) {
+  return window['go']['pkg']['App']['ArchiveTask'](arg1);
+}
+
 export function ConnectDB(arg1) {
   return window['go']['pkg']['App']['ConnectDB'](arg1);
 }
@@ -62,6 +66,10 @@ export function PickDirectory() {
   return window['go']['pkg']['App']['PickDirectory']();
 }
 
+export function RestoreTask(arg1) {
+  return window['go']['pkg']['App']['RestoreTask'](arg1);
+}
+
 export function SaveSettings(arg1) {
   return window['go']['pkg']['App']['SaveSettings'](arg1);
 }
@@ -72,4 +80,8 @@ export function SendChatMessage(arg1, arg2) {
 
 export function SetWorkDir(arg1) {
   return window['go']['pkg']['App']['SetWorkDir'](arg1);
+}
+
+export function UpdateTask(arg1, arg2, arg3, arg4) {
+  return window['go']['pkg']['App']['UpdateTask'](arg1, arg2, arg3, arg4);
 }

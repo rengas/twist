@@ -24,6 +24,10 @@ func ParseStreamLine(line string) (sessionID, content, result string, ok bool) {
 }
 func BuildChatArgs(opts chatInvokeOpts) []string { return buildChatArgs(opts) }
 
+// SetRepoForTest injects a repository for testing without a full Wails context.
+func (a *App) SetRepoForTest(repo Repository) {
+	a.repo = repo
+}
 // HandlePrompt is an exported wrapper for handlePrompt (used in tests).
 func HandlePrompt(task Task, workDir string, repo Repository, designMu *sync.Mutex, log LogFunc) error {
 	return handlePrompt(task, workDir, repo, designMu, log)

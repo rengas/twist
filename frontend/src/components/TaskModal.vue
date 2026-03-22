@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { BrowserOpenURL, ClipboardSetText } from '../../wailsjs/runtime/runtime'
-import { ApproveTask, DeleteTask } from '../../wailsjs/go/pkg/App'
+import { ApproveTask, DeleteTask, UpdateTask, ArchiveTask, RestoreTask } from '../../wailsjs/go/pkg/App'
 
 const props = defineProps({ task: Object })
 const emit = defineEmits(['close', 'open-chat'])
@@ -11,8 +11,15 @@ const loading = ref(false)
 const error = ref('')
 const isSpecExpanded = ref(false)
 
+// Edit mode state
+const editing = ref(false)
+const editTitle = ref('')
+const editPrompt = ref('')
+const editSpec = ref('')
+
 watch(() => props.task?.id, () => {
   isSpecExpanded.value = false
+  editing.value = false
 })
 const copyTaskFeedback = ref(false)
 const copyPRFeedback = ref(false)
@@ -23,9 +30,16 @@ const renderedSpec = computed(() => {
   return marked.parse(props.task.spec)
 })
 
+const isArchived = computed(() => props.task.status === 'archived')
+
 const canApprove = computed(() => {
   const s = props.task.status
   return ['prompt', 'spec', 'code', 'review', 'failed'].includes(s) && !props.task.approved
+})
+
+const canEdit = computed(() => {
+  const s = props.task.status
+  return (s === 'prompt' || s === 'spec') && !props.task.approved
 })
 
 const approveLabel = computed(() => {
@@ -45,7 +59,32 @@ const statusColor = computed(() => ({
   review:   'bg-orange-500/30 text-orange-300',
   done:     'bg-emerald-500/30 text-emerald-300',
   failed:   'bg-red-500/30 text-red-300',
+  archived: 'bg-slate-500/20 text-slate-300',
 }[props.task.status] || 'bg-slate-500/30 text-slate-300'))
+
+function startEditing() {
+  editTitle.value = props.task.title
+  editPrompt.value = props.task.prompt
+  editSpec.value = props.task.spec || ''
+  editing.value = true
+}
+
+function cancelEditing() {
+  editing.value = false
+}
+
+async function saveEdit() {
+  loading.value = true
+  error.value = ''
+  try {
+    await UpdateTask(props.task.id, editTitle.value, editPrompt.value, editSpec.value)
+    editing.value = false
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    loading.value = false
+  }
+}
 
 async function approve() {
   loading.value = true
@@ -65,6 +104,32 @@ async function deleteTask() {
   loading.value = true
   try {
     await DeleteTask(props.task.id)
+    emit('close')
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function archiveTask() {
+  loading.value = true
+  error.value = ''
+  try {
+    await ArchiveTask(props.task.id)
+    emit('close')
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function restoreTask() {
+  loading.value = true
+  error.value = ''
+  try {
+    await RestoreTask(props.task.id)
     emit('close')
   } catch (e) {
     error.value = String(e)
@@ -118,7 +183,10 @@ function copyField(value, feedbackRef) {
               Approved
             </span>
           </div>
-          <h2 class="text-base font-semibold text-slate-100 leading-snug">{{ task.title }}</h2>
+          <!-- Title: editable or read-only -->
+          <input v-if="editing" v-model="editTitle" type="text"
+                 class="w-full text-base font-semibold text-slate-100 leading-snug bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-1.5 focus:outline-none focus:border-violet-500" />
+          <h2 v-else class="text-base font-semibold text-slate-100 leading-snug">{{ task.title }}</h2>
           <!-- Branch with copy icon -->
           <div v-if="task.branch" class="flex items-center gap-1.5 mt-0.5">
             <p class="text-xs text-sky-400 font-mono">{{ task.branch }}</p>
@@ -155,6 +223,16 @@ function copyField(value, feedbackRef) {
           </div>
         </div>
         <div class="flex items-center gap-1.5 flex-shrink-0 mt-0.5 select-none">
+          <!-- Edit button -->
+          <button v-if="canEdit && !editing" @click="startEditing"
+                  class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+                  title="Edit task">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+            </svg>
+            Edit
+          </button>
           <!-- Copy Task button -->
           <button @click="copyTaskContent"
                   class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
@@ -180,14 +258,31 @@ function copyField(value, feedbackRef) {
 
       <!-- Scrollable content -->
       <div class="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+        <!-- Archived notice -->
+        <div v-if="isArchived"
+             class="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-700/50 border border-slate-600/50 text-sm text-slate-300">
+          <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+          </svg>
+          This task is archived. Restore it to start the workflow from the beginning.
+        </div>
+
         <!-- Prompt section -->
         <div>
           <h3 class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5 select-none">Prompt</h3>
-          <p class="text-sm text-slate-300 bg-slate-900/50 rounded-lg px-3 py-2.5 leading-relaxed select-text">{{ task.prompt }}</p>
+          <textarea v-if="editing && task.status === 'prompt'" v-model="editPrompt" rows="5"
+                    class="w-full text-sm text-slate-300 bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 leading-relaxed focus:outline-none focus:border-violet-500 resize-y"></textarea>
+          <p v-else class="text-sm text-slate-300 bg-slate-900/50 rounded-lg px-3 py-2.5 leading-relaxed select-text">{{ task.prompt }}</p>
         </div>
 
         <!-- Spec section (collapsible) -->
-        <div v-if="task.spec" class="spec-section">
+        <div v-if="editing && task.status === 'spec'">
+          <h3 class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5 select-none">Spec</h3>
+          <textarea v-model="editSpec" rows="12"
+                    class="w-full text-sm text-slate-300 bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 leading-relaxed font-mono focus:outline-none focus:border-violet-500 resize-y"></textarea>
+        </div>
+        <div v-else-if="task.spec" class="spec-section">
           <button
             class="spec-toggle"
             :aria-expanded="isSpecExpanded"
@@ -218,49 +313,91 @@ function copyField(value, feedbackRef) {
 
       <!-- Footer actions -->
       <div class="flex items-center justify-between px-6 py-4 border-t border-slate-700/50 select-none">
-        <button @click="deleteTask" :disabled="loading"
-                class="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
-          Delete task
-        </button>
+        <div class="flex items-center gap-3">
+          <button @click="deleteTask" :disabled="loading || editing"
+                  class="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
+            Delete task
+          </button>
+          <!-- Archive button for non-archived tasks -->
+          <button v-if="!isArchived" @click="archiveTask" :disabled="loading"
+                  class="text-xs text-slate-400 hover:text-slate-300 transition-colors disabled:opacity-50">
+            Archive
+          </button>
+        </div>
 
         <div class="flex items-center gap-3">
           <p v-if="error" class="text-xs text-red-400">{{ error }}</p>
 
-          <button @click="emit('open-chat', task.id)"
-                  class="flex items-center gap-1.5 px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-            </svg>
-            Chat
-          </button>
+          <!-- Save / Cancel buttons in edit mode -->
+          <template v-if="editing">
+            <button @click="cancelEditing"
+                    class="px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
+              Cancel
+            </button>
+            <button @click="saveEdit" :disabled="loading"
+                    class="flex items-center gap-2 px-4 py-2 text-xs rounded-lg font-semibold
+                           bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50">
+              <svg v-if="loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 000 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
+              </svg>
+              Save
+            </button>
+          </template>
 
-          <button @click="emit('close')"
-                  class="px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
-            Close
-          </button>
+          <!-- Normal action buttons (hidden during editing) -->
+          <template v-else>
+            <button @click="emit('open-chat', task.id)"
+                    class="flex items-center gap-1.5 px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+              </svg>
+              Chat
+            </button>
 
-          <button v-if="canApprove" @click="approve" :disabled="loading"
-                  class="flex items-center gap-2 px-4 py-2 text-xs rounded-lg font-semibold
-                         bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50">
-            <svg v-if="loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 000 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
-            </svg>
-            <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-            </svg>
-            {{ approveLabel }}
-          </button>
+            <button @click="emit('close')"
+                    class="px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
+              Close
+            </button>
 
-          <span v-else-if="task.approved && task.status !== 'done'"
-                class="text-xs text-emerald-400">
-            Agent is working…
-          </span>
-          <span v-else-if="task.status === 'done'"
-                class="text-xs text-emerald-400">
-            Done
-          </span>
+            <!-- Restore button for archived tasks -->
+            <button v-if="isArchived" @click="restoreTask" :disabled="loading"
+                    class="flex items-center gap-2 px-4 py-2 text-xs rounded-lg font-semibold
+                           bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50">
+              <svg v-if="loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 000 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
+              </svg>
+              <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 10h10a5 5 0 010 10H9m4-10l-4-4m4 4l-4 4"/>
+              </svg>
+              Restore to Prompt
+            </button>
+
+            <button v-if="canApprove" @click="approve" :disabled="loading"
+                    class="flex items-center gap-2 px-4 py-2 text-xs rounded-lg font-semibold
+                           bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50">
+              <svg v-if="loading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 000 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"/>
+              </svg>
+              <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+              </svg>
+              {{ approveLabel }}
+            </button>
+
+            <span v-else-if="task.approved && task.status !== 'done' && !isArchived"
+                  class="text-xs text-emerald-400">
+              Agent is working…
+            </span>
+            <span v-else-if="task.status === 'done'"
+                  class="text-xs text-emerald-400">
+              Done
+            </span>
+          </template>
         </div>
       </div>
     </div>

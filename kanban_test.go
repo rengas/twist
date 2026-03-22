@@ -1149,6 +1149,138 @@ func itoa(i int) string {
 	return fmt.Sprintf("%d", i)
 }
 
+// ── Archive Tests ─────────────────────────────────────────────────────────────
+
+func TestPostgres_ArchiveTask_FromAllStatuses(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	for _, status := range []string{"prompt", "spec", "code", "review", "done", "failed"} {
+		id, err := repo.InsertTask(pkg.Task{Title: "Archive from " + status, Status: status, Approved: false})
+		if err != nil {
+			t.Fatalf("insertTask(%s): %v", status, err)
+		}
+		if err := repo.ArchiveTask(int(id)); err != nil {
+			t.Fatalf("archiveTask from %s: %v", status, err)
+		}
+		task, err := repo.GetTaskByID(int(id))
+		if err != nil {
+			t.Fatalf("getTaskByID(%d): %v", id, err)
+		}
+		if task.Status != "archived" {
+			t.Errorf("expected status 'archived' after archiving from %s, got %q", status, task.Status)
+		}
+		if task.Approved {
+			t.Errorf("expected approved=false after archiving from %s", status)
+		}
+	}
+}
+
+func TestPostgres_RestoreTask_ClearsFields(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{
+		Title:    "Restore me",
+		Status:   "code",
+		Spec:     "old spec",
+		Branch:   "feature/old",
+		PRURL:    "https://github.com/org/repo/pull/1",
+		Approved: true,
+	})
+	// Set session_id and worktree_path.
+	repo.UpdateTaskSessionID(int(id), "session-abc")
+	repo.UpdateTaskWorktreePath(int(id), "/tmp/wt/old")
+
+	// Archive first.
+	if err := repo.ArchiveTask(int(id)); err != nil {
+		t.Fatalf("archiveTask: %v", err)
+	}
+
+	// Now restore.
+	if err := repo.RestoreTask(int(id)); err != nil {
+		t.Fatalf("restoreTask: %v", err)
+	}
+
+	task, err := repo.GetTaskByID(int(id))
+	if err != nil {
+		t.Fatalf("getTaskByID: %v", err)
+	}
+	if task.Status != "prompt" {
+		t.Errorf("expected status 'prompt', got %q", task.Status)
+	}
+	if task.Approved {
+		t.Error("expected approved=false after restore")
+	}
+	if task.Spec != "" {
+		t.Errorf("expected empty spec, got %q", task.Spec)
+	}
+	if task.Branch != "" {
+		t.Errorf("expected empty branch, got %q", task.Branch)
+	}
+	if task.PRURL != "" {
+		t.Errorf("expected empty pr_url, got %q", task.PRURL)
+	}
+	if task.SessionID != "" {
+		t.Errorf("expected empty session_id, got %q", task.SessionID)
+	}
+	if task.WorktreePath != "" {
+		t.Errorf("expected empty worktree_path, got %q", task.WorktreePath)
+	}
+}
+
+func TestPostgres_RestoreTask_RejectsNonArchived(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "Not archived", Status: "prompt"})
+
+	// RestoreTask should not change a non-archived task.
+	if err := repo.RestoreTask(int(id)); err != nil {
+		t.Fatalf("restoreTask returned error: %v", err)
+	}
+
+	task, _ := repo.GetTaskByID(int(id))
+	if task.Status != "prompt" {
+		t.Errorf("expected status unchanged 'prompt', got %q", task.Status)
+	}
+}
+
+func TestPostgres_FindActionableTask_ExcludesArchived(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	// Insert an archived task with approved=true — should never be picked up.
+	repo.InsertTask(pkg.Task{Title: "Archived", Status: "archived", Approved: true})
+
+	_, found, err := repo.FindActionableTask()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Error("archived tasks should not be actionable")
+	}
+}
+
+func TestPostgres_FindActionableTasks_ExcludesArchived(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	repo.InsertTask(pkg.Task{Title: "Archived", Status: "archived", Approved: true})
+	repo.InsertTask(pkg.Task{Title: "Active", Status: "prompt", Approved: true})
+
+	tasks, err := repo.FindActionableTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 actionable task, got %d", len(tasks))
+	}
+	if tasks[0].Title != "Active" {
+		t.Errorf("expected 'Active' task, got %q", tasks[0].Title)
+	}
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func containsSubstring(s, sub string) bool {

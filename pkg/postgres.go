@@ -126,6 +126,14 @@ func (r *PostgresRepository) UpdateTaskWorktreePath(id int, path string) error {
 	return err
 }
 
+func (r *PostgresRepository) UpdateTaskFields(id int, title, prompt, spec string) error {
+	_, err := r.db.Exec(
+		`UPDATE tasks SET title = $1, prompt = $2, spec = $3 WHERE id = $4`,
+		title, prompt, spec, id,
+	)
+	return err
+}
+
 func (r *PostgresRepository) DeleteTask(id int) error {
 	_, err := r.db.Exec(`DELETE FROM tasks WHERE id=$1`, id)
 	return err
@@ -163,6 +171,20 @@ func (r *PostgresRepository) FindActionableTasks() ([]Task, error) {
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
+}
+
+func (r *PostgresRepository) ArchiveTask(id int) error {
+	_, err := r.db.Exec(
+		`UPDATE tasks SET status='archived', approved=false WHERE id=$1`, id)
+	return err
+}
+
+func (r *PostgresRepository) RestoreTask(id int) error {
+	_, err := r.db.Exec(
+		`UPDATE tasks SET status='prompt', approved=false,
+		 spec='', branch='', pr_url='', session_id='', chat_session_id='', worktree_path=''
+		 WHERE id=$1 AND status='archived'`, id)
+	return err
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────

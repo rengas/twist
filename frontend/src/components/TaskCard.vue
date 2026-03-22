@@ -1,11 +1,13 @@
 <script setup>
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+import { ArchiveTask, RestoreTask } from '../../wailsjs/go/pkg/App'
 
 const props = defineProps({ task: Object, colKey: String })
 const emit = defineEmits(['open-chat'])
 
 const agentOwnedStatuses = ['prompt', 'code']
 
+const isArchived = props.task?.status === 'archived'
 const isAgentOwned = agentOwnedStatuses.includes(props.task?.status)
 const isProcessing = isAgentOwned && props.task?.approved
 const needsApproval = !props.task?.approved
@@ -29,6 +31,14 @@ function openPR() {
   if (props.task.pr_url) {
     BrowserOpenURL(props.task.pr_url)
   }
+}
+
+async function archive() {
+  await ArchiveTask(props.task.id)
+}
+
+async function restore() {
+  await RestoreTask(props.task.id)
 }
 </script>
 
@@ -55,6 +65,24 @@ function openPR() {
                   d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
           </svg>
         </button>
+        <!-- Archive button for non-archived tasks -->
+        <button v-if="!isArchived" @click.stop="archive"
+                class="p-0.5 rounded text-slate-600 hover:text-slate-400 transition-colors"
+                title="Archive task">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+          </svg>
+        </button>
+        <!-- Restore button for archived tasks -->
+        <button v-if="isArchived" @click.stop="restore"
+                class="p-0.5 rounded text-slate-600 hover:text-emerald-400 transition-colors"
+                title="Restore to Prompt">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M3 10h10a5 5 0 010 10H9m4-10l-4-4m4 4l-4 4"/>
+          </svg>
+        </button>
       </div>
 
       <!-- Processing spinner -->
@@ -70,6 +98,12 @@ function openPR() {
       <span v-else-if="needsApproval && isAgentOwned"
             class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-medium">
         {{ approvalLabel() }}
+      </span>
+
+      <!-- Archived badge -->
+      <span v-else-if="isArchived"
+            class="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-400 font-medium">
+        Archived
       </span>
 
       <!-- PR link for review/done -->

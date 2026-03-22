@@ -8,6 +8,8 @@ export function AddTaskWithSpec(arg1:string,arg2:string):Promise<void>;
 
 export function ApproveTask(arg1:number):Promise<void>;
 
+export function ArchiveTask(arg1:number):Promise<void>;
+
 export function ConnectDB(arg1:string):Promise<void>;
 
 export function DeleteTask(arg1:number):Promise<void>;
@@ -32,8 +34,12 @@ export function LoadTasks():Promise<Array<pkg.Task>>;
 
 export function PickDirectory():Promise<string>;
 
+export function RestoreTask(arg1:number):Promise<void>;
+
 export function SaveSettings(arg1:Record<string, string>):Promise<void>;
 
 export function SendChatMessage(arg1:number,arg2:string):Promise<void>;
 
 export function SetWorkDir(arg1:string):Promise<void>;
+
+export function UpdateTask(arg1:number,arg2:string,arg3:string,arg4:string):Promise<void>;
