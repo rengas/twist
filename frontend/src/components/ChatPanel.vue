@@ -152,7 +152,7 @@ watch(() => props.streamBuffer, scrollToBottom)
         <div v-else-if="entry.type === 'message' && entry.message"
              :class="entry.message.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
           <div :class="[
-            'max-w-[85%] rounded-lg px-3 py-2 text-sm',
+            'max-w-[min(85%,40rem)] rounded-lg px-3 py-2 text-sm',
             entry.message.role === 'user'
               ? 'bg-sky-600/30 text-sky-100'
               : 'bg-slate-800 text-slate-300 border border-slate-700/50'
