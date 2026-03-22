@@ -14,6 +14,10 @@ export function ApproveTask(arg1) {
   return window['go']['pkg']['App']['ApproveTask'](arg1);
 }
 
+export function ArchiveTask(arg1) {
+  return window['go']['pkg']['App']['ArchiveTask'](arg1);
+}
+
 export function ConnectDB(arg1) {
   return window['go']['pkg']['App']['ConnectDB'](arg1);
 }
@@ -60,6 +64,10 @@ export function LoadTasks() {
 
 export function PickDirectory() {
   return window['go']['pkg']['App']['PickDirectory']();
+}
+
+export function RestoreTask(arg1) {
+  return window['go']['pkg']['App']['RestoreTask'](arg1);
 }
 
 export function SaveSettings(arg1) {
