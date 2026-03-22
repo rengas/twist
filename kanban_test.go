@@ -763,6 +763,115 @@ func TestBuildChatContextMessage_EmptySpec(t *testing.T) {
 	}
 }
 
+// ── UpdateTaskFields / UpdateTask Tests ───────────────────────────────────────
+
+func TestUpdateTaskFields_PromptLane(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "Original", Prompt: "Old prompt", Status: "prompt", Approved: false})
+
+	if err := repo.UpdateTaskFields(int(id), "New Title", "New prompt", ""); err != nil {
+		t.Fatalf("UpdateTaskFields: %v", err)
+	}
+
+	task, err := repo.GetTaskByID(int(id))
+	if err != nil {
+		t.Fatalf("GetTaskByID: %v", err)
+	}
+	if task.Title != "New Title" {
+		t.Errorf("title not updated: %q", task.Title)
+	}
+	if task.Prompt != "New prompt" {
+		t.Errorf("prompt not updated: %q", task.Prompt)
+	}
+}
+
+func TestUpdateTaskFields_SpecLane(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "Original", Prompt: "prompt", Spec: "Old spec", Status: "spec", Approved: false})
+
+	if err := repo.UpdateTaskFields(int(id), "Updated Title", "prompt", "New spec content"); err != nil {
+		t.Fatalf("UpdateTaskFields: %v", err)
+	}
+
+	task, err := repo.GetTaskByID(int(id))
+	if err != nil {
+		t.Fatalf("GetTaskByID: %v", err)
+	}
+	if task.Title != "Updated Title" {
+		t.Errorf("title not updated: %q", task.Title)
+	}
+	if task.Spec != "New spec content" {
+		t.Errorf("spec not updated: %q", task.Spec)
+	}
+}
+
+func TestUpdateTask_BlockedInCodeLane(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "Code Task", Status: "code", Approved: false})
+
+	app := &pkg.App{}
+	app.SetRepoForTest(repo)
+
+	err := app.UpdateTask(int(id), "New Title", "new prompt", "new spec")
+	if err == nil {
+		t.Fatal("expected error when editing task in code status")
+	}
+	if !containsSubstring(err.Error(), "cannot edit task") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateTask_BlockedWhenApproved(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "Approved Task", Prompt: "prompt", Status: "prompt", Approved: true})
+
+	app := &pkg.App{}
+	app.SetRepoForTest(repo)
+
+	err := app.UpdateTask(int(id), "New Title", "new prompt", "")
+	if err == nil {
+		t.Fatal("expected error when editing approved task")
+	}
+	if !containsSubstring(err.Error(), "being processed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateTask_SessionResetOnPromptChange(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, _ := repo.InsertTask(pkg.Task{Title: "Task", Prompt: "original prompt", Status: "prompt", Approved: false})
+	repo.UpdateTaskSessionID(int(id), "session-abc")
+	repo.UpdateTaskChatSessionID(int(id), "chat-session-xyz")
+
+	app := &pkg.App{}
+	app.SetRepoForTest(repo)
+
+	if err := app.UpdateTask(int(id), "Task", "changed prompt", ""); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+
+	task, err := repo.GetTaskByID(int(id))
+	if err != nil {
+		t.Fatalf("GetTaskByID: %v", err)
+	}
+	if task.SessionID != "" {
+		t.Errorf("session_id should be cleared, got %q", task.SessionID)
+	}
+	if task.ChatSessionID != "" {
+		t.Errorf("chat_session_id should be cleared, got %q", task.ChatSessionID)
+	}
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func containsSubstring(s, sub string) bool {

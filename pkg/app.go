@@ -281,6 +281,41 @@ func (a *App) DeleteTask(id int) error {
 	return nil
 }
 
+// UpdateTask allows editing title, prompt, and spec of tasks in prompt or spec lanes.
+// Edits are blocked while the agent is processing (approved = true).
+// If the prompt changes while in the prompt lane, session IDs are cleared for a fresh spec generation.
+func (a *App) UpdateTask(id int, title, prompt, spec string) error {
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	task, err := a.repo.GetTaskByID(id)
+	if err != nil {
+		return fmt.Errorf("task not found: %w", err)
+	}
+
+	if task.Status != "prompt" && task.Status != "spec" {
+		return fmt.Errorf("cannot edit task in %q status", task.Status)
+	}
+
+	if task.Approved {
+		return fmt.Errorf("cannot edit task while it is being processed")
+	}
+
+	if err := a.repo.UpdateTaskFields(id, title, prompt, spec); err != nil {
+		return fmt.Errorf("update failed: %w", err)
+	}
+
+	// If prompt changed while in prompt status, clear sessions for fresh spec generation.
+	if task.Status == "prompt" && strings.TrimSpace(prompt) != strings.TrimSpace(task.Prompt) {
+		_ = a.repo.UpdateTaskSessionID(id, "")
+		_ = a.repo.UpdateTaskChatSessionID(id, "")
+	}
+
+	a.emitTasks()
+	return nil
+}
+
 // GetWorkDir returns the current working directory.
 func (a *App) GetWorkDir() string {
 	return a.workDir

@@ -24,6 +24,11 @@ func ParseStreamLine(line string) (sessionID, content, result string, ok bool) {
 }
 func BuildChatArgs(opts chatInvokeOpts) []string { return buildChatArgs(opts) }
 
+// SetRepoForTest injects a repository for testing without a full Wails context.
+func (a *App) SetRepoForTest(repo Repository) {
+	a.repo = repo
+}
+
 // Export types for testing.
 type ChatInvokeOpts = chatInvokeOpts
 type ChatInvokeResult = chatInvokeResult
