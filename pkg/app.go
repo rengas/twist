@@ -245,6 +245,21 @@ func (a *App) ApproveTask(id int) error {
 	if err := a.repo.UpdateTaskStatus(id, newStatus, approved); err != nil {
 		return err
 	}
+
+	// Record approval events.
+	switch task.Status {
+	case "spec":
+		_ = a.repo.InsertTaskEvent(id, "spec_approved", "user", "Spec approved — moved to code", "")
+	case "review":
+		_ = a.repo.InsertTaskEvent(id, "review_approved", "user", "Review approved — moved to done", "")
+	default:
+		if newStatus != task.Status {
+			_ = a.repo.InsertTaskEvent(id, "status_change", "system",
+				fmt.Sprintf("Status changed to %s", newStatus),
+				fmt.Sprintf("%s → %s", task.Status, newStatus))
+		}
+	}
+
 	a.emitTasks()
 	return nil
 }
@@ -380,6 +395,31 @@ func (a *App) SaveSettings(settings map[string]string) error {
 }
 
 // ── Chat API (exposed to Vue) ──────────────────────────────────────────────────
+
+// GetChatTimeline returns a merged timeline of workflow events and chat messages for a task.
+// It triggers backfill for pre-existing tasks on first call.
+func (a *App) GetChatTimeline(taskID int) []ChatTimelineEntry {
+	if a.repo == nil {
+		return []ChatTimelineEntry{}
+	}
+	pgRepo, ok := a.repo.(*PostgresRepository)
+	if !ok {
+		return []ChatTimelineEntry{}
+	}
+	// Lazily backfill events for pre-existing tasks.
+	if err := pgRepo.BackfillTaskEvents(taskID); err != nil {
+		a.log(fmt.Sprintf("[WARN] BackfillTaskEvents: %v", err))
+	}
+	timeline, err := pgRepo.GetChatTimeline(taskID)
+	if err != nil {
+		a.log(fmt.Sprintf("[ERROR] GetChatTimeline: %v", err))
+		return []ChatTimelineEntry{}
+	}
+	if timeline == nil {
+		return []ChatTimelineEntry{}
+	}
+	return timeline
+}
 
 // GetChatMessages returns stored chat history for a task.
 func (a *App) GetChatMessages(taskID int) []ChatMessage {

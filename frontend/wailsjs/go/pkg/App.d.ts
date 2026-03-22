@@ -14,6 +14,8 @@ export function GetActiveCount():Promise<number>;
 
 export function GetChatMessages(arg1:number):Promise<Array<pkg.ChatMessage>>;
 
+export function GetChatTimeline(arg1:number):Promise<Array<pkg.ChatTimelineEntry>>;
+
 export function GetDBStatus():Promise<pkg.DBStatus>;
 
 export function GetDesignDoc():Promise<string>;

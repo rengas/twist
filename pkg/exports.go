@@ -24,6 +24,16 @@ func ParseStreamLine(line string) (sessionID, content, result string, ok bool) {
 }
 func BuildChatArgs(opts chatInvokeOpts) []string { return buildChatArgs(opts) }
 
+// HandlePrompt is an exported wrapper for handlePrompt (used in tests).
+func HandlePrompt(task Task, workDir string, repo Repository, designMu *sync.Mutex, log LogFunc) error {
+	return handlePrompt(task, workDir, repo, designMu, log)
+}
+
+// HandleCode is an exported wrapper for handleCode (used in tests).
+func HandleCode(task Task, workDir string, repo Repository, designMu *sync.Mutex, log LogFunc) error {
+	return handleCode(task, workDir, repo, designMu, log)
+}
+
 // Export types for testing.
 type ChatInvokeOpts = chatInvokeOpts
 type ChatInvokeResult = chatInvokeResult
