@@ -225,10 +225,11 @@ onUnmounted(() => {
       <div class="flex flex-1 min-h-0">
         <!-- Kanban Board -->
         <KanbanBoard :tasks="tasks" @refresh="refresh" @open-chat="openChat"
-                     class="flex-1 min-h-0 transition-all duration-200" />
+                     class="min-h-0 transition-all duration-200"
+                     :class="chatOpen ? 'w-1/2' : 'flex-1'" />
 
         <!-- Chat Panel -->
-        <div v-if="chatOpen" class="w-96 flex-shrink-0 transition-all duration-200">
+        <div v-if="chatOpen" class="w-1/2 flex-shrink-0 transition-all duration-200">
           <ChatPanel :task-id="chatTaskId"
                      :task-title="chatTaskTitle"
                      :messages="chatMessages"
