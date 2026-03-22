@@ -432,7 +432,7 @@ func parseStreamLine(line string) (sessionID, content, result string, ok bool) {
 
 // buildChatArgs constructs the Claude CLI argument list for a chat invocation.
 func buildChatArgs(opts chatInvokeOpts) []string {
-	args := []string{"-p", "--dangerously-skip-permissions", "--output-format", "stream-json"}
+	args := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"}
 	if opts.ResumeSessionID != "" {
 		args = append(args, "--resume", opts.ResumeSessionID)
 		if opts.Fork {
