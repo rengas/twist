@@ -80,7 +80,7 @@ func TestBuildChatArgs_ResumeWithFork(t *testing.T) {
 		Fork:            true,
 		Message:         "hello",
 	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--resume", "sess-123", "--fork-session", "hello"}
+	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--resume", "sess-123", "--fork-session", "hello"}
 	if len(args) != len(expected) {
 		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
 	}
@@ -97,7 +97,7 @@ func TestBuildChatArgs_ResumeWithoutFork(t *testing.T) {
 		Fork:            false,
 		Message:         "hello",
 	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--resume", "sess-123", "hello"}
+	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--resume", "sess-123", "hello"}
 	if len(args) != len(expected) {
 		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
 	}
@@ -113,7 +113,7 @@ func TestBuildChatArgs_SessionID(t *testing.T) {
 		SessionID: "fresh-uuid",
 		Message:   "hello",
 	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--session-id", "fresh-uuid", "hello"}
+	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--session-id", "fresh-uuid", "hello"}
 	if len(args) != len(expected) {
 		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
 	}
@@ -128,7 +128,7 @@ func TestBuildChatArgs_NoSession(t *testing.T) {
 	args := buildChatArgs(chatInvokeOpts{
 		Message: "hello",
 	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "hello"}
+	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "hello"}
 	if len(args) != len(expected) {
 		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
 	}

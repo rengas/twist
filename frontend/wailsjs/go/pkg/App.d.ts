@@ -4,6 +4,8 @@ import {pkg} from '../models';
 
 export function AddTask(arg1:string,arg2:string):Promise<void>;
 
+export function AddTaskWithSpec(arg1:string,arg2:string):Promise<void>;
+
 export function ApproveTask(arg1:number):Promise<void>;
 
 export function ConnectDB(arg1:string):Promise<void>;

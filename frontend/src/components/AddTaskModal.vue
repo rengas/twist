@@ -1,23 +1,35 @@
 <script setup>
-import { ref } from 'vue'
-import { AddTask } from '../../wailsjs/go/pkg/App'
+import { ref, computed } from 'vue'
+import { AddTask, AddTaskWithSpec } from '../../wailsjs/go/pkg/App'
 
 const emit = defineEmits(['close', 'created'])
 
 const title = ref('')
-const prompt = ref('')
+const textContent = ref('')
+const startingLane = ref('prompt')
 const loading = ref(false)
 const error = ref('')
 
+const textLabel = computed(() => startingLane.value === 'prompt' ? 'Prompt' : 'Spec')
+const textPlaceholder = computed(() =>
+  startingLane.value === 'prompt'
+    ? 'Describe what you want to build…'
+    : 'Paste or write your spec here…'
+)
+
 async function submit() {
-  if (!title.value.trim() || !prompt.value.trim()) {
-    error.value = 'Title and prompt are required.'
+  if (!title.value.trim() || !textContent.value.trim()) {
+    error.value = `Title and ${textLabel.value.toLowerCase()} are required.`
     return
   }
   loading.value = true
   error.value = ''
   try {
-    await AddTask(title.value.trim(), prompt.value.trim())
+    if (startingLane.value === 'spec') {
+      await AddTaskWithSpec(title.value.trim(), textContent.value.trim())
+    } else {
+      await AddTask(title.value.trim(), textContent.value.trim())
+    }
     emit('created')
     emit('close')
   } catch (e) {
@@ -44,6 +56,25 @@ async function submit() {
 
       <!-- Form -->
       <div class="px-6 py-5 space-y-4">
+        <!-- Starting Lane Radio Group -->
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5">
+            Starting Lane
+          </label>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+              <input type="radio" v-model="startingLane" value="prompt"
+                     class="accent-violet-500" />
+              Prompt
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+              <input type="radio" v-model="startingLane" value="spec"
+                     class="accent-violet-500" />
+              Spec
+            </label>
+          </div>
+        </div>
+
         <div>
           <label class="block text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5">
             Title
@@ -56,14 +87,18 @@ async function submit() {
 
         <div>
           <label class="block text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5">
-            Prompt
+            {{ textLabel }}
           </label>
-          <textarea v-model="prompt" rows="5"
-                    placeholder="Describe what you want the agent to build or implement…"
-                    class="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5
-                           text-sm text-slate-200 placeholder-slate-600 focus:outline-none
-                           focus:border-violet-500 focus:ring-1 focus:ring-violet-500/50
-                           transition-colors resize-none leading-relaxed"></textarea>
+          <textarea v-model="textContent"
+                    :rows="startingLane === 'spec' ? 8 : 5"
+                    :placeholder="textPlaceholder"
+                    :class="[
+                      'w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5',
+                      'text-sm text-slate-200 placeholder-slate-600 focus:outline-none',
+                      'focus:border-violet-500 focus:ring-1 focus:ring-violet-500/50',
+                      'transition-colors resize-none leading-relaxed',
+                      startingLane === 'spec' ? 'font-mono' : ''
+                    ]"></textarea>
         </div>
 
         <p v-if="error" class="text-xs text-red-400">{{ error }}</p>
