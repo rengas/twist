@@ -16,6 +16,7 @@ type Repository interface {
 	UpdateTaskSessionID(id int, sessionID string) error
 	UpdateTaskChatSessionID(id int, chatSessionID string) error
 	UpdateTaskWorktreePath(id int, path string) error
+	UpdateTaskFields(id int, title, prompt, spec string) error
 	DeleteTask(id int) error
 	FindActionableTask() (Task, bool, error)
 	FindActionableTasks() ([]Task, error)

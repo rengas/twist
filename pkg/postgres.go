@@ -126,6 +126,14 @@ func (r *PostgresRepository) UpdateTaskWorktreePath(id int, path string) error {
 	return err
 }
 
+func (r *PostgresRepository) UpdateTaskFields(id int, title, prompt, spec string) error {
+	_, err := r.db.Exec(
+		`UPDATE tasks SET title = $1, prompt = $2, spec = $3 WHERE id = $4`,
+		title, prompt, spec, id,
+	)
+	return err
+}
+
 func (r *PostgresRepository) DeleteTask(id int) error {
 	_, err := r.db.Exec(`DELETE FROM tasks WHERE id=$1`, id)
 	return err

@@ -73,3 +73,7 @@ export function SendChatMessage(arg1, arg2) {
 export function SetWorkDir(arg1) {
   return window['go']['pkg']['App']['SetWorkDir'](arg1);
 }
+
+export function UpdateTask(arg1, arg2, arg3, arg4) {
+  return window['go']['pkg']['App']['UpdateTask'](arg1, arg2, arg3, arg4);
+}

@@ -37,3 +37,5 @@ export function SaveSettings(arg1:Record<string, string>):Promise<void>;
 export function SendChatMessage(arg1:number,arg2:string):Promise<void>;
 
 export function SetWorkDir(arg1:string):Promise<void>;
+
+export function UpdateTask(arg1:number,arg2:string,arg3:string,arg4:string):Promise<void>;
