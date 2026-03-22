@@ -1068,6 +1068,8 @@ func TestPostgres_BackfillTaskEvents_ExistingEventsNotOverwritten(t *testing.T) 
 	if len(events) != 1 {
 		t.Errorf("expected 1 event (no backfill), got %d", len(events))
 	}
+}
+
 // ── AddTaskWithSpec Tests ────────────────────────────────────────────────────
 
 func TestAddTaskWithSpec_InsertsInSpecLane(t *testing.T) {
