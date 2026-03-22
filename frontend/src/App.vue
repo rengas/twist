@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
 import { LoadTasks, GetWorkDir, GetActiveCount, GetDBStatus, GetChatTimeline, GetChatMessages, SendChatMessage } from '../wailsjs/go/pkg/App'
 import KanbanBoard from './components/KanbanBoard.vue'
@@ -17,6 +17,34 @@ const showSettings = ref(false)
 const activeCount = ref(0)
 const dbConnected = ref(false)
 const savedDbUrl = ref('')
+
+// Chat resize state
+const chatWidthPercent = ref(35)
+const isResizing = ref(false)
+const containerRef = ref(null)
+
+function startResize(e) {
+  isResizing.value = true
+  e.preventDefault()
+  document.addEventListener('mousemove', onResize)
+  document.addEventListener('mouseup', stopResize)
+}
+
+function onResize(e) {
+  if (!isResizing.value || !containerRef.value) return
+  const rect = containerRef.value.getBoundingClientRect()
+  const offsetFromRight = rect.right - e.clientX
+  const percent = (offsetFromRight / rect.width) * 100
+  chatWidthPercent.value = Math.min(70, Math.max(20, percent))
+}
+
+function stopResize() {
+  isResizing.value = false
+  document.removeEventListener('mousemove', onResize)
+  document.removeEventListener('mouseup', stopResize)
+}
+
+const chatWidthStyle = computed(() => `width: ${chatWidthPercent.value}%`)
 
 // Chat state
 const chatOpen = ref(false)
@@ -170,6 +198,8 @@ onUnmounted(() => {
   EventsOff('chat:stream')
   EventsOff('chat:done')
   EventsOff('chat:error')
+  document.removeEventListener('mousemove', onResize)
+  document.removeEventListener('mouseup', stopResize)
 })
 </script>
 
@@ -222,13 +252,22 @@ onUnmounted(() => {
       </header>
 
       <!-- Kanban + Chat -->
-      <div class="flex flex-1 min-h-0">
+      <div ref="containerRef" class="flex flex-1 min-h-0" :class="{ 'select-none': isResizing }">
         <!-- Kanban Board -->
         <KanbanBoard :tasks="tasks" @refresh="refresh" @open-chat="openChat"
-                     class="flex-1 min-h-0 transition-all duration-200" />
+                     class="flex-1 min-h-0" />
+
+        <!-- Resize Handle -->
+        <div v-if="chatOpen"
+             class="w-1 flex-shrink-0 cursor-col-resize group relative hover:w-1.5 transition-all"
+             @mousedown="startResize">
+          <div class="absolute inset-y-0 -left-1 -right-1"></div>
+          <div class="h-full w-full bg-slate-700/50 group-hover:bg-violet-500/70 transition-colors"
+               :class="{ 'bg-violet-500/70': isResizing }"></div>
+        </div>
 
         <!-- Chat Panel -->
-        <div v-if="chatOpen" class="w-96 flex-shrink-0 transition-all duration-200">
+        <div v-if="chatOpen" class="flex-shrink-0" :style="chatWidthStyle">
           <ChatPanel :task-id="chatTaskId"
                      :task-title="chatTaskTitle"
                      :messages="chatMessages"
