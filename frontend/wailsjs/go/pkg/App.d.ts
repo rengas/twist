@@ -4,6 +4,8 @@ import {pkg} from '../models';
 
 export function AddTask(arg1:string,arg2:string):Promise<void>;
 
+export function AddTaskWithSpec(arg1:string,arg2:string):Promise<void>;
+
 export function ApproveTask(arg1:number):Promise<void>;
 
 export function ConnectDB(arg1:string):Promise<void>;
@@ -13,6 +15,8 @@ export function DeleteTask(arg1:number):Promise<void>;
 export function GetActiveCount():Promise<number>;
 
 export function GetChatMessages(arg1:number):Promise<Array<pkg.ChatMessage>>;
+
+export function GetChatTimeline(arg1:number):Promise<Array<pkg.ChatTimelineEntry>>;
 
 export function GetDBStatus():Promise<pkg.DBStatus>;
 
