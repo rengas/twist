@@ -218,6 +218,33 @@ func (a *App) AddTask(title, prompt string) error {
 	return nil
 }
 
+// AddTaskWithSpec creates a new task directly in the spec lane with a user-supplied spec.
+func (a *App) AddTaskWithSpec(title, spec string) error {
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(spec) == "" {
+		return fmt.Errorf("title and spec are required")
+	}
+	id, err := a.repo.InsertTask(Task{
+		Title:    title,
+		Spec:     spec,
+		Status:   "spec",
+		Approved: false,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Append spec summary to design document for cross-task context.
+	summary := fmt.Sprintf("Task #%d spec: %s", id, title)
+	section := fmt.Sprintf("## Task #%d: %s (Spec)\n\n%s\n", id, title, truncate(spec, 500))
+	appendDesignVersion(a.repo, &a.designMu, a.workDir, int(id), section, summary)
+
+	a.emitTasks()
+	return nil
+}
+
 // ApproveTask sets approved=true on a task and advances status where needed.
 // spec → sets status to "code" and approved to true
 // review → sets status to "done" (terminal) and approved to false

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -761,6 +762,85 @@ func TestBuildChatContextMessage_EmptySpec(t *testing.T) {
 	if !containsSubstring(msg, "Hello") {
 		t.Error("context message should contain user message")
 	}
+}
+
+// ── AddTaskWithSpec Tests ────────────────────────────────────────────────────
+
+func TestAddTaskWithSpec_InsertsInSpecLane(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	id, err := repo.InsertTask(pkg.Task{
+		Title:    "Spec task",
+		Spec:     "## Overview\nA detailed spec.",
+		Status:   "spec",
+		Approved: false,
+	})
+	if err != nil {
+		t.Fatalf("InsertTask: %v", err)
+	}
+	if id == 0 {
+		t.Fatal("expected non-zero id")
+	}
+
+	task, err := repo.GetTaskByID(int(id))
+	if err != nil {
+		t.Fatalf("GetTaskByID: %v", err)
+	}
+	if task.Status != "spec" {
+		t.Errorf("expected status 'spec', got %q", task.Status)
+	}
+	if task.Spec != "## Overview\nA detailed spec." {
+		t.Errorf("expected spec content, got %q", task.Spec)
+	}
+	if task.Approved {
+		t.Error("expected approved to be false")
+	}
+	if task.Title != "Spec task" {
+		t.Errorf("expected title 'Spec task', got %q", task.Title)
+	}
+}
+
+func TestAddTaskWithSpec_DesignDocUpdated(t *testing.T) {
+	repo, cleanup := testRepo(t)
+	defer cleanup()
+
+	var mu sync.Mutex
+	workDir := t.TempDir()
+
+	id, err := repo.InsertTask(pkg.Task{
+		Title:    "Design doc task",
+		Spec:     "Some spec content here.",
+		Status:   "spec",
+		Approved: false,
+	})
+	if err != nil {
+		t.Fatalf("InsertTask: %v", err)
+	}
+
+	// Simulate what AddTaskWithSpec does: append design version.
+	summary := "Task #" + itoa(int(id)) + " spec: Design doc task"
+	section := "## Task #" + itoa(int(id)) + ": Design doc task (Spec)\n\nSome spec content here.\n"
+	pkg.AppendDesignVersion(repo, &mu, workDir, int(id), section, summary)
+
+	// Verify design version was stored.
+	version, content, err := repo.GetLatestDesignVersion()
+	if err != nil {
+		t.Fatalf("GetLatestDesignVersion: %v", err)
+	}
+	if version != 1 {
+		t.Errorf("expected version 1, got %d", version)
+	}
+	if !containsSubstring(content, "Design doc task (Spec)") {
+		t.Error("design doc should contain task section header")
+	}
+	if !containsSubstring(content, "Some spec content here.") {
+		t.Error("design doc should contain spec content")
+	}
+}
+
+func itoa(i int) string {
+	return fmt.Sprintf("%d", i)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

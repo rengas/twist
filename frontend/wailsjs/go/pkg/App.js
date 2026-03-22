@@ -6,6 +6,10 @@ export function AddTask(arg1, arg2) {
   return window['go']['pkg']['App']['AddTask'](arg1, arg2);
 }
 
+export function AddTaskWithSpec(arg1, arg2) {
+  return window['go']['pkg']['App']['AddTaskWithSpec'](arg1, arg2);
+}
+
 export function ApproveTask(arg1) {
   return window['go']['pkg']['App']['ApproveTask'](arg1);
 }
