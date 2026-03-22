@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
-import { LoadTasks, GetWorkDir, GetActiveCount, GetDBStatus, GetChatMessages, SendChatMessage } from '../wailsjs/go/pkg/App'
+import { LoadTasks, GetWorkDir, GetActiveCount, GetDBStatus, GetChatTimeline, GetChatMessages, SendChatMessage } from '../wailsjs/go/pkg/App'
 import KanbanBoard from './components/KanbanBoard.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import LogViewer from './components/LogViewer.vue'
@@ -23,6 +23,7 @@ const chatOpen = ref(false)
 const chatTaskId = ref(null)
 const chatTaskTitle = ref('')
 const chatMessages = ref([])
+const chatTimeline = ref([])
 const chatStreaming = ref(false)
 const chatStreamBuffer = ref('')
 const chatError = ref('')
@@ -37,6 +38,11 @@ async function openChat(taskID) {
   const task = tasks.value.find(t => t.id === taskID)
   chatTaskTitle.value = task ? task.title : `Task #${taskID}`
 
+  try {
+    chatTimeline.value = await GetChatTimeline(taskID)
+  } catch {
+    chatTimeline.value = []
+  }
   try {
     chatMessages.value = await GetChatMessages(taskID)
   } catch {
@@ -136,7 +142,10 @@ onMounted(async () => {
     if (payload.task_id === chatTaskId.value) {
       chatStreaming.value = false
       chatStreamBuffer.value = ''
-      // Reload messages from backend for consistency.
+      // Reload timeline and messages from backend for consistency.
+      try {
+        chatTimeline.value = await GetChatTimeline(chatTaskId.value)
+      } catch { /* keep current */ }
       try {
         chatMessages.value = await GetChatMessages(chatTaskId.value)
       } catch { /* keep current */ }
@@ -223,6 +232,7 @@ onUnmounted(() => {
           <ChatPanel :task-id="chatTaskId"
                      :task-title="chatTaskTitle"
                      :messages="chatMessages"
+                     :timeline="chatTimeline"
                      :streaming="chatStreaming"
                      :stream-buffer="chatStreamBuffer"
                      :error="chatError"

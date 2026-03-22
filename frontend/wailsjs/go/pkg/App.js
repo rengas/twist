@@ -30,6 +30,10 @@ export function GetChatMessages(arg1) {
   return window['go']['pkg']['App']['GetChatMessages'](arg1);
 }
 
+export function GetChatTimeline(arg1) {
+  return window['go']['pkg']['App']['GetChatTimeline'](arg1);
+}
+
 export function GetDBStatus() {
   return window['go']['pkg']['App']['GetDBStatus']();
 }
