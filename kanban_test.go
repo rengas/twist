@@ -613,62 +613,128 @@ func TestPostgres_InsertAndGetChatMessages(t *testing.T) {
 	}
 }
 
-func TestPostgres_GetChatMessages_Empty(t *testing.T) {
+func TestPostgres_ChildRecords_Empty(t *testing.T) {
 	repo, cleanup := testRepo(t)
 	defer cleanup()
 
-	taskID, _ := repo.InsertTask(pkg.Task{Title: "No Chat", Status: "prompt"})
-
-	msgs, err := repo.GetChatMessages(int(taskID))
-	if err != nil {
-		t.Fatalf("getChatMessages: %v", err)
+	type subcase struct {
+		name  string
+		query func(int) (int, error)
 	}
-	if len(msgs) != 0 {
-		t.Errorf("expected 0 messages, got %d", len(msgs))
+	taskID, _ := repo.InsertTask(pkg.Task{Title: "No Children", Status: "prompt"})
+	subcases := []subcase{
+		{"ChatMessages", func(id int) (int, error) {
+			msgs, err := repo.GetChatMessages(id)
+			return len(msgs), err
+		}},
+		{"TaskEvents", func(id int) (int, error) {
+			evts, err := repo.GetTaskEvents(id)
+			return len(evts), err
+		}},
+	}
+	for _, sc := range subcases {
+		t.Run(sc.name, func(t *testing.T) {
+			count, err := sc.query(int(taskID))
+			if err != nil {
+				t.Fatalf("query: %v", err)
+			}
+			if count != 0 {
+				t.Errorf("expected 0 records, got %d", count)
+			}
+		})
 	}
 }
 
-func TestPostgres_ChatMessages_CascadeDelete(t *testing.T) {
+func TestPostgres_ChildRecords_CascadeDelete(t *testing.T) {
 	repo, cleanup := testRepo(t)
 	defer cleanup()
 
-	taskID, _ := repo.InsertTask(pkg.Task{Title: "Delete Me", Status: "prompt"})
-	repo.InsertChatMessage(int(taskID), "user", "test message")
-	repo.InsertChatMessage(int(taskID), "assistant", "response")
-
-	// Delete the task — chat messages should cascade.
-	if err := repo.DeleteTask(int(taskID)); err != nil {
-		t.Fatalf("deleteTask: %v", err)
+	type subcase struct {
+		name   string
+		insert func(int)
+		query  func(int) (int, error)
 	}
-
-	msgs, err := repo.GetChatMessages(int(taskID))
-	if err != nil {
-		t.Fatalf("getChatMessages after delete: %v", err)
+	subcases := []subcase{
+		{"ChatMessages", func(id int) {
+			repo.InsertChatMessage(id, "user", "test message")
+			repo.InsertChatMessage(id, "assistant", "response")
+		}, func(id int) (int, error) {
+			msgs, err := repo.GetChatMessages(id)
+			return len(msgs), err
+		}},
+		{"TaskEvents", func(id int) {
+			repo.InsertTaskEvent(id, "prompt_submitted", "user", "Prompt submitted", "test")
+		}, func(id int) (int, error) {
+			evts, err := repo.GetTaskEvents(id)
+			return len(evts), err
+		}},
 	}
-	if len(msgs) != 0 {
-		t.Errorf("expected 0 messages after cascade delete, got %d", len(msgs))
+	for _, sc := range subcases {
+		t.Run(sc.name, func(t *testing.T) {
+			taskID, _ := repo.InsertTask(pkg.Task{Title: "Delete Me", Status: "prompt", Prompt: "test"})
+			sc.insert(int(taskID))
+
+			if err := repo.DeleteTask(int(taskID)); err != nil {
+				t.Fatalf("deleteTask: %v", err)
+			}
+
+			count, err := sc.query(int(taskID))
+			if err != nil {
+				t.Fatalf("query after delete: %v", err)
+			}
+			if count != 0 {
+				t.Errorf("expected 0 records after cascade delete, got %d", count)
+			}
+		})
 	}
 }
 
-func TestPostgres_ChatMessages_MultipleTasksIsolated(t *testing.T) {
+func TestPostgres_ChildRecords_MultipleTasksIsolated(t *testing.T) {
 	repo, cleanup := testRepo(t)
 	defer cleanup()
 
+	type subcase struct {
+		name   string
+		insert func(idA, idB int)
+		query  func(int) (int, error)
+		wantA  int
+		wantB  int
+	}
 	taskA, _ := repo.InsertTask(pkg.Task{Title: "Task A", Status: "done"})
 	taskB, _ := repo.InsertTask(pkg.Task{Title: "Task B", Status: "done"})
 
-	repo.InsertChatMessage(int(taskA), "user", "msg for A")
-	repo.InsertChatMessage(int(taskA), "assistant", "reply for A")
-	repo.InsertChatMessage(int(taskB), "user", "msg for B")
-
-	msgsA, _ := repo.GetChatMessages(int(taskA))
-	msgsB, _ := repo.GetChatMessages(int(taskB))
-
-	if len(msgsA) != 2 {
-		t.Errorf("expected 2 messages for task A, got %d", len(msgsA))
+	subcases := []subcase{
+		{"ChatMessages", func(idA, idB int) {
+			repo.InsertChatMessage(idA, "user", "msg for A")
+			repo.InsertChatMessage(idA, "assistant", "reply for A")
+			repo.InsertChatMessage(idB, "user", "msg for B")
+		}, func(id int) (int, error) {
+			msgs, err := repo.GetChatMessages(id)
+			return len(msgs), err
+		}, 2, 1},
+		{"TaskEvents", func(idA, idB int) {
+			repo.InsertTaskEvent(idA, "prompt_submitted", "user", "Prompt A", "a")
+			repo.InsertTaskEvent(idA, "spec_generated", "agent", "Spec A", "a spec")
+			repo.InsertTaskEvent(idB, "prompt_submitted", "user", "Prompt B", "b")
+		}, func(id int) (int, error) {
+			evts, err := repo.GetTaskEvents(id)
+			return len(evts), err
+		}, 2, 1},
 	}
-	if len(msgsB) != 1 {
-		t.Errorf("expected 1 message for task B, got %d", len(msgsB))
+	for _, sc := range subcases {
+		t.Run(sc.name, func(t *testing.T) {
+			sc.insert(int(taskA), int(taskB))
+
+			countA, _ := sc.query(int(taskA))
+			countB, _ := sc.query(int(taskB))
+
+			if countA != sc.wantA {
+				t.Errorf("expected %d records for task A, got %d", sc.wantA, countA)
+			}
+			if countB != sc.wantB {
+				t.Errorf("expected %d records for task B, got %d", sc.wantB, countB)
+			}
+		})
 	}
 }
 
@@ -794,62 +860,6 @@ func TestPostgres_InsertAndGetTaskEvents(t *testing.T) {
 	}
 }
 
-func TestPostgres_GetTaskEvents_Empty(t *testing.T) {
-	repo, cleanup := testRepo(t)
-	defer cleanup()
-
-	taskID, _ := repo.InsertTask(pkg.Task{Title: "No Events", Status: "prompt"})
-
-	events, err := repo.GetTaskEvents(int(taskID))
-	if err != nil {
-		t.Fatalf("getTaskEvents: %v", err)
-	}
-	if len(events) != 0 {
-		t.Errorf("expected 0 events, got %d", len(events))
-	}
-}
-
-func TestPostgres_TaskEvents_CascadeDelete(t *testing.T) {
-	repo, cleanup := testRepo(t)
-	defer cleanup()
-
-	taskID, _ := repo.InsertTask(pkg.Task{Title: "Delete Me", Status: "prompt", Prompt: "test"})
-	repo.InsertTaskEvent(int(taskID), "prompt_submitted", "user", "Prompt submitted", "test")
-
-	if err := repo.DeleteTask(int(taskID)); err != nil {
-		t.Fatalf("deleteTask: %v", err)
-	}
-
-	events, err := repo.GetTaskEvents(int(taskID))
-	if err != nil {
-		t.Fatalf("getTaskEvents after delete: %v", err)
-	}
-	if len(events) != 0 {
-		t.Errorf("expected 0 events after cascade delete, got %d", len(events))
-	}
-}
-
-func TestPostgres_TaskEvents_MultipleTasksIsolated(t *testing.T) {
-	repo, cleanup := testRepo(t)
-	defer cleanup()
-
-	taskA, _ := repo.InsertTask(pkg.Task{Title: "Task A", Status: "prompt"})
-	taskB, _ := repo.InsertTask(pkg.Task{Title: "Task B", Status: "prompt"})
-
-	repo.InsertTaskEvent(int(taskA), "prompt_submitted", "user", "Prompt A", "a")
-	repo.InsertTaskEvent(int(taskA), "spec_generated", "agent", "Spec A", "a spec")
-	repo.InsertTaskEvent(int(taskB), "prompt_submitted", "user", "Prompt B", "b")
-
-	eventsA, _ := repo.GetTaskEvents(int(taskA))
-	eventsB, _ := repo.GetTaskEvents(int(taskB))
-
-	if len(eventsA) != 2 {
-		t.Errorf("expected 2 events for task A, got %d", len(eventsA))
-	}
-	if len(eventsB) != 1 {
-		t.Errorf("expected 1 event for task B, got %d", len(eventsB))
-	}
-}
 
 // ── Chat Timeline Tests ──────────────────────────────────────────────────────
 
@@ -961,34 +971,62 @@ func TestPostgres_BackfillTaskEvents_FullTask(t *testing.T) {
 }
 
 func TestPostgres_BackfillTaskEvents_Idempotent(t *testing.T) {
-	repo, cleanup := testRepo(t)
-	defer cleanup()
+	t.Run("DoubleBackfill", func(t *testing.T) {
+		repo, cleanup := testRepo(t)
+		defer cleanup()
 
-	taskID, _ := repo.InsertTask(pkg.Task{
-		Title:  "Idempotent Task",
-		Status: "done",
-		Prompt: "test prompt",
-		Spec:   "test spec",
-		PRURL:  "https://github.com/org/repo/pull/1",
+		taskID, _ := repo.InsertTask(pkg.Task{
+			Title:  "Idempotent Task",
+			Status: "done",
+			Prompt: "test prompt",
+			Spec:   "test spec",
+			PRURL:  "https://github.com/org/repo/pull/1",
+		})
+
+		// First backfill.
+		if err := repo.BackfillTaskEvents(int(taskID)); err != nil {
+			t.Fatalf("first backfill: %v", err)
+		}
+
+		events1, _ := repo.GetTaskEvents(int(taskID))
+
+		// Second backfill — should be a no-op.
+		if err := repo.BackfillTaskEvents(int(taskID)); err != nil {
+			t.Fatalf("second backfill: %v", err)
+		}
+
+		events2, _ := repo.GetTaskEvents(int(taskID))
+
+		if len(events1) != len(events2) {
+			t.Errorf("backfill should be idempotent: first=%d, second=%d", len(events1), len(events2))
+		}
 	})
 
-	// First backfill.
-	if err := repo.BackfillTaskEvents(int(taskID)); err != nil {
-		t.Fatalf("first backfill: %v", err)
-	}
+	t.Run("PreExistingEvents", func(t *testing.T) {
+		repo, cleanup := testRepo(t)
+		defer cleanup()
 
-	events1, _ := repo.GetTaskEvents(int(taskID))
+		taskID, _ := repo.InsertTask(pkg.Task{
+			Title:  "Has Events",
+			Status: "done",
+			Prompt: "test",
+			Spec:   "spec",
+			PRURL:  "https://example.com/pr/1",
+		})
 
-	// Second backfill — should be a no-op.
-	if err := repo.BackfillTaskEvents(int(taskID)); err != nil {
-		t.Fatalf("second backfill: %v", err)
-	}
+		// Insert a manual event first.
+		repo.InsertTaskEvent(int(taskID), "prompt_submitted", "user", "Prompt submitted", "test")
 
-	events2, _ := repo.GetTaskEvents(int(taskID))
+		// Backfill should be a no-op since events already exist.
+		if err := repo.BackfillTaskEvents(int(taskID)); err != nil {
+			t.Fatalf("backfillTaskEvents: %v", err)
+		}
 
-	if len(events1) != len(events2) {
-		t.Errorf("backfill should be idempotent: first=%d, second=%d", len(events1), len(events2))
-	}
+		events, _ := repo.GetTaskEvents(int(taskID))
+		if len(events) != 1 {
+			t.Errorf("expected 1 event (no backfill), got %d", len(events))
+		}
+	})
 }
 
 func TestPostgres_BackfillTaskEvents_PartialTask(t *testing.T) {
@@ -1041,32 +1079,6 @@ func TestPostgres_BackfillTaskEvents_NoPrompt(t *testing.T) {
 	events, _ := repo.GetTaskEvents(int(taskID))
 	if len(events) != 0 {
 		t.Errorf("expected 0 events for task with no prompt, got %d", len(events))
-	}
-}
-
-func TestPostgres_BackfillTaskEvents_ExistingEventsNotOverwritten(t *testing.T) {
-	repo, cleanup := testRepo(t)
-	defer cleanup()
-
-	taskID, _ := repo.InsertTask(pkg.Task{
-		Title:  "Has Events",
-		Status: "done",
-		Prompt: "test",
-		Spec:   "spec",
-		PRURL:  "https://example.com/pr/1",
-	})
-
-	// Insert a manual event first.
-	repo.InsertTaskEvent(int(taskID), "prompt_submitted", "user", "Prompt submitted", "test")
-
-	// Backfill should be a no-op since events already exist.
-	if err := repo.BackfillTaskEvents(int(taskID)); err != nil {
-		t.Fatalf("backfillTaskEvents: %v", err)
-	}
-
-	events, _ := repo.GetTaskEvents(int(taskID))
-	if len(events) != 1 {
-		t.Errorf("expected 1 event (no backfill), got %d", len(events))
 	}
 }
 

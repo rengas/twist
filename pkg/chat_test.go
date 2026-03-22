@@ -74,68 +74,50 @@ func TestParseStreamLine_EmptyObject(t *testing.T) {
 	}
 }
 
-func TestBuildChatArgs_ResumeWithFork(t *testing.T) {
-	args := buildChatArgs(chatInvokeOpts{
-		ResumeSessionID: "sess-123",
-		Fork:            true,
-		Message:         "hello",
-	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--resume", "sess-123", "--fork-session", "hello"}
-	if len(args) != len(expected) {
-		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
+func requireArgsEqual(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("len: got %d, want %d\nargs: %v", len(got), len(want), got)
 	}
-	for i := range expected {
-		if args[i] != expected[i] {
-			t.Errorf("args[%d]: got %q, want %q", i, args[i], expected[i])
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("args[%d]: got %q, want %q", i, got[i], want[i])
 		}
 	}
 }
 
-func TestBuildChatArgs_ResumeWithoutFork(t *testing.T) {
-	args := buildChatArgs(chatInvokeOpts{
-		ResumeSessionID: "sess-123",
-		Fork:            false,
-		Message:         "hello",
-	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--resume", "sess-123", "hello"}
-	if len(args) != len(expected) {
-		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
+func TestBuildChatArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     chatInvokeOpts
+		expected []string
+	}{
+		{
+			name:     "ResumeWithFork",
+			opts:     chatInvokeOpts{ResumeSessionID: "sess-123", Fork: true, Message: "hello"},
+			expected: []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--resume", "sess-123", "--fork-session", "hello"},
+		},
+		{
+			name:     "ResumeWithoutFork",
+			opts:     chatInvokeOpts{ResumeSessionID: "sess-123", Fork: false, Message: "hello"},
+			expected: []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--resume", "sess-123", "hello"},
+		},
+		{
+			name:     "SessionID",
+			opts:     chatInvokeOpts{SessionID: "fresh-uuid", Message: "hello"},
+			expected: []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--session-id", "fresh-uuid", "hello"},
+		},
+		{
+			name:     "NoSession",
+			opts:     chatInvokeOpts{Message: "hello"},
+			expected: []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "hello"},
+		},
 	}
-	for i := range expected {
-		if args[i] != expected[i] {
-			t.Errorf("args[%d]: got %q, want %q", i, args[i], expected[i])
-		}
-	}
-}
-
-func TestBuildChatArgs_SessionID(t *testing.T) {
-	args := buildChatArgs(chatInvokeOpts{
-		SessionID: "fresh-uuid",
-		Message:   "hello",
-	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "--session-id", "fresh-uuid", "hello"}
-	if len(args) != len(expected) {
-		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
-	}
-	for i := range expected {
-		if args[i] != expected[i] {
-			t.Errorf("args[%d]: got %q, want %q", i, args[i], expected[i])
-		}
-	}
-}
-
-func TestBuildChatArgs_NoSession(t *testing.T) {
-	args := buildChatArgs(chatInvokeOpts{
-		Message: "hello",
-	})
-	expected := []string{"-p", "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json", "hello"}
-	if len(args) != len(expected) {
-		t.Fatalf("len: got %d, want %d\nargs: %v", len(args), len(expected), args)
-	}
-	for i := range expected {
-		if args[i] != expected[i] {
-			t.Errorf("args[%d]: got %q, want %q", i, args[i], expected[i])
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := buildChatArgs(tt.opts)
+			requireArgsEqual(t, args, tt.expected)
+		})
 	}
 }
 
