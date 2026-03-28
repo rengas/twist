@@ -76,3 +76,15 @@ body {
 }
 .prose strong { color: #f1f5f9; }
 .prose hr { border-color: #334155; margin: 1rem 0; }
+
+/* Scroll snap utilities for Kanban columns */
+.snap-x {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.snap-none {
+  scroll-snap-type: none;
+}
+.snap-start {
+  scroll-snap-align: start;
+}

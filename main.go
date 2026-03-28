@@ -20,8 +20,8 @@ func main() {
 		Title:            "twist",
 		Width:            1400,
 		Height:           900,
-		MinWidth:         1000,
-		MinHeight:        700,
+		MinWidth:         600,
+		MinHeight:        500,
 		WindowStartState: options.Maximised,
 		BackgroundColour: &options.RGBA{R: 15, G: 23, B: 42, A: 255}, // #0f172a
 		AssetServer: &assetserver.Options{

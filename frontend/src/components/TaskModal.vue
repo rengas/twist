@@ -165,14 +165,14 @@ function copyField(value, feedbackRef) {
 
 <template>
   <!-- Backdrop -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm"
        @click.self="emit('close')">
     <!-- Modal -->
-    <div class="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl
+    <div class="relative w-full max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col rounded-2xl
                 bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50">
 
       <!-- Header -->
-      <div class="flex items-start gap-3 px-6 pt-5 pb-4 border-b border-slate-700/50">
+      <div class="flex items-start gap-3 px-4 sm:px-6 pt-5 pb-4 border-b border-slate-700/50">
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 mb-1 select-none">
             <span class="text-[10px] font-mono text-slate-500">#{{ task.id }}</span>
@@ -257,7 +257,7 @@ function copyField(value, feedbackRef) {
       </div>
 
       <!-- Scrollable content -->
-      <div class="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+      <div class="overflow-y-auto flex-1 px-4 sm:px-6 py-4 space-y-4">
         <!-- Archived notice -->
         <div v-if="isArchived"
              class="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-700/50 border border-slate-600/50 text-sm text-slate-300">
@@ -280,7 +280,7 @@ function copyField(value, feedbackRef) {
         <div v-if="editing && task.status === 'spec'">
           <h3 class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5 select-none">Spec</h3>
           <textarea v-model="editSpec" rows="12"
-                    class="w-full text-sm text-slate-300 bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 leading-relaxed font-mono focus:outline-none focus:border-violet-500 resize-y"></textarea>
+                    class="w-full text-sm text-slate-300 bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 leading-relaxed font-mono focus:outline-none focus:border-violet-500 resize-y max-h-[30vh] overflow-y-auto"></textarea>
         </div>
         <div v-else-if="task.spec" class="spec-section">
           <button
@@ -312,7 +312,7 @@ function copyField(value, feedbackRef) {
       </div>
 
       <!-- Footer actions -->
-      <div class="flex items-center justify-between px-6 py-4 border-t border-slate-700/50 select-none">
+      <div class="flex items-center justify-between px-4 sm:px-6 py-4 border-t border-slate-700/50 select-none">
         <div class="flex items-center gap-3">
           <button @click="deleteTask" :disabled="loading || editing"
                   class="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">

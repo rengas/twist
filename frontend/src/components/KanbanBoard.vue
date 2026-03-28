@@ -60,9 +60,9 @@ function onModalClose() {
       </button>
     </div>
 
-    <div class="flex gap-3 px-4 py-4 overflow-x-auto flex-1">
+    <div class="flex gap-2 sm:gap-3 px-3 sm:px-4 py-3 sm:py-4 overflow-x-auto flex-1 snap-x snap-mandatory sm:snap-none">
       <div v-for="col in visibleColumns" :key="col.key"
-           class="flex flex-col flex-shrink-0 w-52 rounded-xl bg-slate-800/50 border border-slate-700/40 backdrop-blur-sm">
+           class="flex flex-col min-w-[160px] w-52 flex-1 flex-shrink snap-start rounded-xl bg-slate-800/50 border border-slate-700/40 backdrop-blur-sm">
         <!-- Column Header -->
         <div class="flex items-center gap-2 px-3 pt-3 pb-2.5 select-none">
           <div class="w-2 h-2 rounded-full" :class="col.dot"></div>

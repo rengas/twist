@@ -18,6 +18,17 @@ const activeCount = ref(0)
 const dbConnected = ref(false)
 const savedDbUrl = ref('')
 
+// Viewport size detection
+const windowWidth = ref(window.innerWidth)
+let resizeTimer = null
+function onWindowResize() {
+  clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => { windowWidth.value = window.innerWidth }, 100)
+}
+const isNarrow = computed(() => windowWidth.value < 640)
+const isMedium = computed(() => windowWidth.value >= 640 && windowWidth.value < 1024)
+const isWide = computed(() => windowWidth.value >= 1024)
+
 // Chat resize state
 const chatWidthPercent = ref(35)
 const isResizing = ref(false)
@@ -119,6 +130,8 @@ async function onDBConnected() {
 }
 
 onMounted(async () => {
+  window.addEventListener('resize', onWindowResize)
+
   // Check database connection status.
   try {
     const status = await GetDBStatus()
@@ -190,6 +203,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', onWindowResize)
+  clearTimeout(resizeTimer)
   EventsOff('db:status')
   EventsOff('tasks:updated')
   EventsOff('activeCount:updated')
@@ -211,13 +226,10 @@ onUnmounted(() => {
   <template v-else>
     <div class="flex flex-col h-screen bg-slate-900 text-slate-200">
       <!-- Header -->
-      <header class="grid grid-cols-3 items-center px-6 py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0 select-none"
+      <header class="flex items-center justify-between sm:grid sm:grid-cols-3 sm:items-center px-4 sm:px-6 py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0 select-none"
               style="--wails-draggable: drag">
-        <!-- Left spacer -->
-        <div></div>
-
-        <!-- Center: Logo -->
-        <div class="flex items-center justify-center gap-3">
+        <!-- Left: Logo (visible at all sizes) -->
+        <div class="flex items-center gap-2 sm:gap-3">
           <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-xs font-bold">
             T
           </div>
@@ -226,12 +238,16 @@ onUnmounted(() => {
                :class="activeCount > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'">
             <span class="w-1.5 h-1.5 rounded-full inline-block"
                   :class="activeCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'"></span>
-            {{ activeCount > 0 ? `${activeCount} task${activeCount > 1 ? 's' : ''} running` : 'Idle' }}
+            <span class="hidden md:inline">{{ activeCount > 0 ? `${activeCount} task${activeCount > 1 ? 's' : ''} running` : 'Idle' }}</span>
+            <span class="md:hidden">{{ activeCount > 0 ? activeCount : '' }}</span>
           </div>
         </div>
 
+        <!-- Center spacer (hidden below sm) -->
+        <div class="hidden sm:flex"></div>
+
         <!-- Right: Actions -->
-        <div class="flex items-center justify-end gap-3" style="--wails-draggable: no-drag">
+        <div class="flex items-center justify-end gap-2 sm:gap-3" style="--wails-draggable: no-drag">
           <button @click="showSettings = true"
                   class="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
                   title="Settings">
@@ -242,23 +258,23 @@ onUnmounted(() => {
             </svg>
           </button>
           <button @click="showAddModal = true"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors">
+                  class="flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
             </svg>
-            New Task
+            <span class="hidden md:inline">New Task</span>
           </button>
         </div>
       </header>
 
       <!-- Kanban + Chat -->
-      <div ref="containerRef" class="flex flex-1 min-h-0" :class="{ 'select-none': isResizing }">
+      <div ref="containerRef" class="flex flex-1 min-h-0 relative" :class="{ 'select-none': isResizing }">
         <!-- Kanban Board -->
         <KanbanBoard :tasks="tasks" @refresh="refresh" @open-chat="openChat"
                      class="flex-1 min-h-0" />
 
-        <!-- Resize Handle -->
-        <div v-if="chatOpen"
+        <!-- Resize Handle (only on wide viewports) -->
+        <div v-if="chatOpen && isWide"
              class="w-1 flex-shrink-0 cursor-col-resize group relative hover:w-1.5 transition-all"
              @mousedown="startResize">
           <div class="absolute inset-y-0 -left-1 -right-1"></div>
@@ -266,8 +282,8 @@ onUnmounted(() => {
                :class="{ 'bg-violet-500/70': isResizing }"></div>
         </div>
 
-        <!-- Chat Panel -->
-        <div v-if="chatOpen" class="flex-shrink-0" :style="chatWidthStyle">
+        <!-- Chat Panel: side-by-side on wide, overlay on medium, fullscreen on narrow -->
+        <div v-if="chatOpen && isWide" class="flex-shrink-0" :style="chatWidthStyle">
           <ChatPanel :task-id="chatTaskId"
                      :task-title="chatTaskTitle"
                      :messages="chatMessages"
@@ -275,6 +291,26 @@ onUnmounted(() => {
                      :streaming="chatStreaming"
                      :stream-buffer="chatStreamBuffer"
                      :error="chatError"
+                     @send="sendChatMessage"
+                     @close="closeChat" />
+        </div>
+
+        <!-- Chat overlay backdrop (medium + narrow) -->
+        <div v-if="chatOpen && !isWide"
+             class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm"
+             @click="closeChat"></div>
+
+        <!-- Chat overlay panel (medium: 85vw slide-over, narrow: fullscreen) -->
+        <div v-if="chatOpen && !isWide"
+             :class="isNarrow ? 'fixed inset-0 z-40' : 'fixed inset-y-0 right-0 w-[85vw] z-40'">
+          <ChatPanel :task-id="chatTaskId"
+                     :task-title="chatTaskTitle"
+                     :messages="chatMessages"
+                     :timeline="chatTimeline"
+                     :streaming="chatStreaming"
+                     :stream-buffer="chatStreamBuffer"
+                     :error="chatError"
+                     :show-back-button="isNarrow"
                      @send="sendChatMessage"
                      @close="closeChat" />
         </div>

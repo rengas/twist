@@ -44,7 +44,7 @@ async function restore() {
 
 <template>
   <div class="group rounded-lg bg-slate-900/70 border border-slate-700/50 hover:border-slate-500/70
-              cursor-pointer p-3 transition-all duration-150 hover:shadow-lg hover:shadow-black/30
+              cursor-pointer p-2 sm:p-3 transition-all duration-150 hover:shadow-lg hover:shadow-black/30
               hover:-translate-y-0.5 active:translate-y-0">
 
     <!-- Title -->
@@ -108,14 +108,14 @@ async function restore() {
 
       <!-- PR link for review/done -->
       <span v-else-if="task.pr_url && (task.status === 'review' || task.status === 'done')"
-            class="text-[10px] text-blue-400 hover:text-blue-300 underline truncate max-w-[90px] cursor-pointer"
+            class="text-[10px] text-blue-400 hover:text-blue-300 underline truncate max-w-[60px] sm:max-w-[90px] cursor-pointer"
             @click.stop="openPR">
         {{ task.pr_url.replace(/.*\/pull\//, 'PR #') }}
       </span>
 
       <!-- Branch chip fallback for review/done -->
       <span v-else-if="task.branch && (task.status === 'review' || task.status === 'done')"
-            class="text-[10px] text-sky-400 font-mono truncate max-w-[90px]" :title="task.branch">
+            class="text-[10px] text-sky-400 font-mono truncate max-w-[60px] sm:max-w-[90px]" :title="task.branch">
         {{ task.branch.replace('feature/', '') }}
       </span>
     </div>

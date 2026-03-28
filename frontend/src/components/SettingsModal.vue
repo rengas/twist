@@ -95,17 +95,17 @@ function onKeydown(e) {
 <template>
   <Teleport to="body">
     <div v-if="modelValue"
-         class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm"
          @click.self="cancel"
          @keydown="onKeydown"
          tabindex="-1">
-      <div class="w-full max-w-lg rounded-2xl bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50"
+      <div class="w-full max-w-[calc(100vw-2rem)] sm:max-w-lg max-h-[92vh] sm:max-h-[85vh] overflow-y-auto rounded-2xl bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50"
            role="dialog"
            aria-modal="true"
            aria-label="Settings">
 
         <!-- Header -->
-        <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-700/50">
+        <div class="flex items-center justify-between px-4 sm:px-6 pt-5 pb-4 border-b border-slate-700/50">
           <h2 class="text-sm font-semibold text-slate-100">Settings</h2>
           <button @click="cancel" class="text-slate-500 hover:text-slate-300 transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -115,7 +115,7 @@ function onKeydown(e) {
         </div>
 
         <!-- Body -->
-        <div class="px-6 py-5 space-y-6">
+        <div class="px-4 sm:px-6 py-5 space-y-6">
 
           <!-- Database section -->
           <section>
@@ -198,7 +198,7 @@ function onKeydown(e) {
         </div>
 
         <!-- Footer -->
-        <div class="flex items-center justify-end gap-3 px-6 pb-5">
+        <div class="flex items-center justify-end gap-3 px-4 sm:px-6 pb-5">
           <button @click="cancel"
                   class="px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
             Cancel

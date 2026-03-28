@@ -9,7 +9,8 @@ const props = defineProps({
   timeline: Array,
   streaming: Boolean,
   streamBuffer: String,
-  error: String
+  error: String,
+  showBackButton: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['send', 'close'])
@@ -91,9 +92,17 @@ watch(() => props.streamBuffer, scrollToBottom)
   <div class="flex flex-col h-full bg-slate-900 border-l border-slate-700/50">
     <!-- Header -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700/50 flex-shrink-0">
-      <div class="min-w-0 flex-1">
-        <p class="text-xs text-slate-500 mb-0.5">Chat</p>
-        <p class="text-sm font-semibold text-slate-200 truncate">{{ taskTitle }}</p>
+      <div class="flex items-center gap-2 min-w-0 flex-1">
+        <button v-if="showBackButton" @click="emit('close')"
+                class="text-slate-400 hover:text-slate-200 transition-colors flex-shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs text-slate-500 mb-0.5">Chat</p>
+          <p class="text-sm font-semibold text-slate-200 truncate">{{ taskTitle }}</p>
+        </div>
       </div>
       <button @click="emit('close')"
               class="text-slate-500 hover:text-slate-300 transition-colors flex-shrink-0 ml-2">
