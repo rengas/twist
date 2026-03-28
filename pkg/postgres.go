@@ -41,7 +41,7 @@ func (r *PostgresRepository) Close() error {
 
 // TruncateAll removes all data from all tables. Used by tests for clean state.
 func (r *PostgresRepository) TruncateAll() {
-	r.db.Exec(`TRUNCATE task_events, chat_messages, tasks, settings, design_versions RESTART IDENTITY CASCADE`)
+	r.db.Exec(`TRUNCATE task_events, chat_messages, tasks, settings, design_versions, project_chat_messages, project_chats RESTART IDENTITY CASCADE`)
 }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
@@ -429,6 +429,84 @@ func (r *PostgresRepository) BackfillTaskEvents(taskID int) error {
 	}
 
 	return tx.Commit()
+}
+
+// ── Project-level Chat ───────────────────────────────────────────────────────
+
+func (r *PostgresRepository) InsertProjectChat() (int64, error) {
+	var id int64
+	err := r.db.QueryRow(
+		`INSERT INTO project_chats (title) VALUES ('New Chat') RETURNING id`,
+	).Scan(&id)
+	return id, err
+}
+
+func (r *PostgresRepository) GetActiveProjectChat() (*ProjectChat, error) {
+	var c ProjectChat
+	err := r.db.QueryRow(
+		`SELECT id, session_id, title, archived, created_at FROM project_chats
+		 WHERE archived = FALSE ORDER BY id DESC LIMIT 1`,
+	).Scan(&c.ID, &c.SessionID, &c.Title, &c.Archived, &c.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (r *PostgresRepository) ArchiveProjectChat(id int) error {
+	_, err := r.db.Exec(`UPDATE project_chats SET archived = TRUE WHERE id = $1`, id)
+	return err
+}
+
+func (r *PostgresRepository) GetProjectChatByID(id int) (ProjectChat, error) {
+	var c ProjectChat
+	err := r.db.QueryRow(
+		`SELECT id, session_id, title, archived, created_at FROM project_chats WHERE id = $1`, id,
+	).Scan(&c.ID, &c.SessionID, &c.Title, &c.Archived, &c.CreatedAt)
+	return c, err
+}
+
+func (r *PostgresRepository) UpdateProjectChatSessionID(id int, sessionID string) error {
+	_, err := r.db.Exec(`UPDATE project_chats SET session_id = $1 WHERE id = $2`, sessionID, id)
+	return err
+}
+
+func (r *PostgresRepository) UpdateProjectChatTitle(id int, title string) error {
+	_, err := r.db.Exec(`UPDATE project_chats SET title = $1 WHERE id = $2`, title, id)
+	return err
+}
+
+func (r *PostgresRepository) InsertProjectChatMessage(chatID int, role, content string) (ProjectChatMessage, error) {
+	var msg ProjectChatMessage
+	err := r.db.QueryRow(
+		`INSERT INTO project_chat_messages (chat_id, role, content) VALUES ($1, $2, $3)
+		 RETURNING id, chat_id, role, content, created_at`,
+		chatID, role, content,
+	).Scan(&msg.ID, &msg.ChatID, &msg.Role, &msg.Content, &msg.CreatedAt)
+	return msg, err
+}
+
+func (r *PostgresRepository) GetProjectChatMessages(chatID int) ([]ProjectChatMessage, error) {
+	rows, err := r.db.Query(
+		`SELECT id, chat_id, role, content, created_at FROM project_chat_messages
+		 WHERE chat_id = $1 ORDER BY created_at ASC`, chatID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var messages []ProjectChatMessage
+	for rows.Next() {
+		var m ProjectChatMessage
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
 }
 
 func (r *PostgresRepository) GetTaskSpecs(excludeTaskID int, limit int) ([]TaskSpecSummary, error) {

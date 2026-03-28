@@ -61,6 +61,24 @@ type ChatTimelineEntry struct {
 	Timestamp string       `json:"timestamp"`
 }
 
+// ProjectChat represents a project-level chat session (not bound to any task).
+type ProjectChat struct {
+	ID        int       `json:"id"`
+	SessionID string    `json:"session_id"`
+	Title     string    `json:"title"`
+	Archived  bool      `json:"archived"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ProjectChatMessage represents a single message in a project-level chat.
+type ProjectChatMessage struct {
+	ID        int       `json:"id"`
+	ChatID    int       `json:"chat_id"`
+	Role      string    `json:"role"`    // "user" | "assistant"
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // DesignVersion represents one immutable snapshot of the shared design document.
 type DesignVersion struct {
 	ID        int    `json:"id"`

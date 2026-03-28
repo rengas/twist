@@ -3,7 +3,7 @@ import { ref, watch, nextTick, computed } from 'vue'
 import { marked } from 'marked'
 
 const props = defineProps({
-  taskId: Number,
+  taskId: { type: Number, default: null },
   taskTitle: String,
   messages: Array,
   timeline: Array,
@@ -11,6 +11,14 @@ const props = defineProps({
   streamBuffer: String,
   error: String
 })
+
+const isProjectMode = computed(() => props.taskId === null)
+const emptyStateText = computed(() =>
+  isProjectMode.value ? 'No messages yet. Ask Claude about this project.' : 'No messages yet. Ask Claude about this task.'
+)
+const inputPlaceholder = computed(() =>
+  isProjectMode.value ? 'Ask Claude about the project...' : 'Ask Claude about this task...'
+)
 
 const emit = defineEmits(['send', 'close'])
 
@@ -106,7 +114,7 @@ watch(() => props.streamBuffer, scrollToBottom)
     <!-- Timeline -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto px-3 py-3 space-y-3">
       <div v-if="displayTimeline.length === 0" class="flex items-center justify-center h-full">
-        <p class="text-xs text-slate-600">No messages yet. Ask Claude about this task.</p>
+        <p class="text-xs text-slate-600">{{ emptyStateText }}</p>
       </div>
 
       <template v-for="entry in displayTimeline" :key="entry.event?.id || entry.message?.id || Math.random()">
@@ -188,7 +196,7 @@ watch(() => props.streamBuffer, scrollToBottom)
         <textarea v-model="input"
                   @keydown="onKeydown"
                   :disabled="streaming"
-                  placeholder="Ask Claude about this task..."
+                  :placeholder="inputPlaceholder"
                   rows="4"
                   class="flex-1 resize-none rounded-lg bg-slate-800 border border-slate-700/50 px-3 py-2
                          text-sm text-slate-200 placeholder-slate-600

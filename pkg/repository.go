@@ -42,6 +42,16 @@ type Repository interface {
 	// Task events
 	InsertTaskEvent(taskID int, eventType, actor, summary, content string) error
 	GetTaskEvents(taskID int) ([]TaskEvent, error)
+
+	// Project-level chat
+	InsertProjectChat() (int64, error)
+	GetActiveProjectChat() (*ProjectChat, error)
+	ArchiveProjectChat(id int) error
+	GetProjectChatByID(id int) (ProjectChat, error)
+	UpdateProjectChatSessionID(id int, sessionID string) error
+	UpdateProjectChatTitle(id int, title string) error
+	InsertProjectChatMessage(chatID int, role, content string) (ProjectChatMessage, error)
+	GetProjectChatMessages(chatID int) ([]ProjectChatMessage, error)
 }
 
 // TaskSpecSummary is a lightweight view of a task for cross-task context injection.

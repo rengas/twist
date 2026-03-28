@@ -30,6 +30,10 @@ export function GetActiveCount() {
   return window['go']['pkg']['App']['GetActiveCount']();
 }
 
+export function GetActiveProjectChat() {
+  return window['go']['pkg']['App']['GetActiveProjectChat']();
+}
+
 export function GetChatMessages(arg1) {
   return window['go']['pkg']['App']['GetChatMessages'](arg1);
 }
@@ -44,6 +48,10 @@ export function GetDBStatus() {
 
 export function GetDesignDoc() {
   return window['go']['pkg']['App']['GetDesignDoc']();
+}
+
+export function GetProjectChatMessages(arg1) {
+  return window['go']['pkg']['App']['GetProjectChatMessages'](arg1);
 }
 
 export function GetDesignHistory() {
@@ -76,6 +84,14 @@ export function SaveSettings(arg1) {
 
 export function SendChatMessage(arg1, arg2) {
   return window['go']['pkg']['App']['SendChatMessage'](arg1, arg2);
+}
+
+export function SendProjectChatMessage(arg1, arg2) {
+  return window['go']['pkg']['App']['SendProjectChatMessage'](arg1, arg2);
+}
+
+export function StartProjectChat() {
+  return window['go']['pkg']['App']['StartProjectChat']();
 }
 
 export function SetWorkDir(arg1) {
