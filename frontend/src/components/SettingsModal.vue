@@ -71,7 +71,7 @@ async function save() {
     }
 
     // Save remaining settings (workDir, maxWorkers) via the existing path.
-    await SaveSettings({ workDir: draft.workDir, maxWorkers: draft.maxWorkers })
+    await SaveSettings({ workDir: draft.workDir, maxWorkers: String(draft.maxWorkers) })
     emit('saved')
     emit('update:modelValue', false)
   } catch (e) {
