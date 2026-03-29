@@ -86,6 +86,22 @@ function closeChat() {
 async function sendChatMessage(text) {
   if (!chatTaskId.value || chatStreaming.value) return
   chatError.value = ''
+
+  // Optimistically add the user message to the timeline
+  chatTimeline.value = [
+    ...chatTimeline.value,
+    {
+      type: 'message',
+      message: {
+        id: Date.now(),
+        role: 'user',
+        content: text,
+        created_at: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    }
+  ]
+
   chatStreaming.value = true
   chatStreamBuffer.value = ''
   try {

@@ -66,6 +66,7 @@ function send() {
   if (!text || props.streaming) return
   emit('send', text)
   input.value = ''
+  scrollToBottom()
 }
 
 function onKeydown(e) {
@@ -83,7 +84,10 @@ function scrollToBottom() {
   })
 }
 
-watch(() => displayTimeline.value.length, scrollToBottom)
+watch(() => props.timeline, scrollToBottom)
+watch(() => props.streaming, (isStreaming) => {
+  if (isStreaming) scrollToBottom()
+})
 watch(() => props.streamBuffer, scrollToBottom)
 </script>
 
