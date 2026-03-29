@@ -29,9 +29,10 @@ type App struct {
 	activeTasks   map[int]context.CancelFunc // prevents double-pickup of tasks
 	maxWorkers    int                        // max concurrent agent tasks
 	connected     bool                       // whether the database is connected
-	chatLocksMu   sync.Mutex                 // guards chatLocks map
-	chatLocks     map[int]bool               // prevents overlapping Claude chat invocations per task
-	loopCancel    context.CancelFunc         // cancels the current background loop
+	chatLocksMu      sync.Mutex                 // guards chatLocks map
+	chatLocks        map[int]bool               // prevents overlapping Claude chat invocations per task
+	projectChatLock  sync.Mutex                 // only one project chat invocation at a time
+	loopCancel       context.CancelFunc         // cancels the current background loop
 }
 
 func NewApp() *App {
@@ -833,6 +834,217 @@ The user wants to discuss this task with you. Respond to their message below.
 ---
 
 %s`, title, spec, userMessage)
+}
+
+// ── Project Chat API (exposed to Vue) ─────────────────────────────────────────
+
+// StartProjectChat archives any active project chat and creates a new one.
+func (a *App) StartProjectChat() (ProjectChat, error) {
+	if a.repo == nil {
+		return ProjectChat{}, fmt.Errorf("database not connected")
+	}
+
+	// Archive existing active chat.
+	active, err := a.repo.GetActiveProjectChat()
+	if err != nil {
+		return ProjectChat{}, err
+	}
+	if active != nil {
+		if err := a.repo.ArchiveProjectChat(active.ID); err != nil {
+			return ProjectChat{}, err
+		}
+	}
+
+	id, err := a.repo.InsertProjectChat()
+	if err != nil {
+		return ProjectChat{}, err
+	}
+
+	chat, err := a.repo.GetProjectChatByID(int(id))
+	if err != nil {
+		return ProjectChat{}, err
+	}
+	return chat, nil
+}
+
+// GetActiveProjectChat returns the current non-archived project chat (or nil).
+func (a *App) GetActiveProjectChat() (*ProjectChat, error) {
+	if a.repo == nil {
+		return nil, fmt.Errorf("database not connected")
+	}
+	return a.repo.GetActiveProjectChat()
+}
+
+// GetProjectChatMessages returns messages for a project chat.
+func (a *App) GetProjectChatMessages(chatID int) []ProjectChatMessage {
+	if a.repo == nil {
+		return []ProjectChatMessage{}
+	}
+	msgs, err := a.repo.GetProjectChatMessages(chatID)
+	if err != nil {
+		a.log(fmt.Sprintf("[ERROR] GetProjectChatMessages: %v", err))
+		return []ProjectChatMessage{}
+	}
+	if msgs == nil {
+		return []ProjectChatMessage{}
+	}
+	return msgs
+}
+
+// SendProjectChatMessage sends a message in a project chat context.
+func (a *App) SendProjectChatMessage(chatID int, message string) error {
+	if a.repo == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	// Acquire project-level chat lock.
+	a.projectChatLock.Lock()
+
+	// Look up the chat.
+	chat, err := a.repo.GetProjectChatByID(chatID)
+	if err != nil {
+		a.projectChatLock.Unlock()
+		return fmt.Errorf("project chat #%d not found: %w", chatID, err)
+	}
+	if chat.Archived {
+		a.projectChatLock.Unlock()
+		return fmt.Errorf("project chat #%d is archived", chatID)
+	}
+
+	// Insert the user message.
+	userMsg, err := a.repo.InsertProjectChatMessage(chatID, "user", message)
+	if err != nil {
+		a.projectChatLock.Unlock()
+		return fmt.Errorf("failed to save message: %w", err)
+	}
+
+	// Emit user message to frontend.
+	runtime.EventsEmit(a.ctx, "project-chat:message", map[string]interface{}{
+		"chat_id":    userMsg.ChatID,
+		"id":         userMsg.ID,
+		"role":       userMsg.Role,
+		"content":    userMsg.Content,
+		"created_at": userMsg.CreatedAt,
+	})
+
+	// Determine working directory.
+	a.mu.Lock()
+	dir := a.workDir
+	a.mu.Unlock()
+
+	// Run Claude in a goroutine to avoid blocking.
+	go func() {
+		defer a.projectChatLock.Unlock()
+
+		var opts chatInvokeOpts
+		if chat.SessionID != "" {
+			// Resume existing conversation.
+			opts = chatInvokeOpts{
+				ResumeSessionID: chat.SessionID,
+				Message:         message,
+				Dir:             dir,
+			}
+		} else {
+			// Fresh invocation — no resume, no session-id.
+			opts = chatInvokeOpts{
+				Message: message,
+				Dir:     dir,
+			}
+		}
+
+		result, invokeErr := a.invokeProjectChatClaude(chatID, opts)
+
+		if invokeErr != nil {
+			runtime.EventsEmit(a.ctx, "project-chat:error", map[string]interface{}{
+				"chat_id": chatID,
+				"error":   invokeErr.Error(),
+			})
+			return
+		}
+
+		// Persist session ID if this was the first message.
+		if chat.SessionID == "" && result.SessionID != "" {
+			_ = a.repo.UpdateProjectChatSessionID(chatID, result.SessionID)
+		}
+
+		// Save assistant response.
+		if result.Response != "" {
+			a.repo.InsertProjectChatMessage(chatID, "assistant", result.Response)
+		}
+
+		runtime.EventsEmit(a.ctx, "project-chat:done", map[string]interface{}{"chat_id": chatID})
+	}()
+
+	return nil
+}
+
+// invokeProjectChatClaude runs the Claude CLI for project chat, parsing stream-json output.
+func (a *App) invokeProjectChatClaude(chatID int, opts chatInvokeOpts) (chatInvokeResult, error) {
+	args := buildChatArgs(opts)
+	cmd := exec.Command("claude", args...)
+	cmd.Dir = opts.Dir
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return chatInvokeResult{}, err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return chatInvokeResult{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return chatInvokeResult{}, err
+	}
+
+	var stderrBuf strings.Builder
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line + "\n")
+			a.log(fmt.Sprintf("[PROJECT-CHAT ERR] Chat #%d: %s", chatID, line))
+		}
+	}()
+
+	var result chatInvokeResult
+	var fullResponse strings.Builder
+	scanner := bufio.NewScanner(stdoutPipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		sessionID, content, resultText, ok := parseStreamLine(line)
+		if !ok {
+			fullResponse.WriteString(line + "\n")
+			runtime.EventsEmit(a.ctx, "project-chat:stream", map[string]interface{}{"chat_id": chatID, "chunk": line + "\n"})
+			continue
+		}
+
+		if sessionID != "" && result.SessionID == "" {
+			result.SessionID = sessionID
+		}
+		if content != "" {
+			fullResponse.WriteString(content)
+			runtime.EventsEmit(a.ctx, "project-chat:stream", map[string]interface{}{"chat_id": chatID, "chunk": content})
+		}
+		if resultText != "" {
+			result.Response = resultText
+		}
+	}
+
+	wg.Wait()
+	if err := cmd.Wait(); err != nil {
+		stderrStr := stderrBuf.String()
+		return chatInvokeResult{}, fmt.Errorf("claude exited with error: %v (stderr: %s)", err, stderrStr)
+	}
+
+	if result.Response == "" {
+		result.Response = strings.TrimSpace(fullResponse.String())
+	}
+
+	return result, nil
 }
 
 // ── Background Loop ───────────────────────────────────────────────────────────

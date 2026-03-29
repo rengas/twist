@@ -16,6 +16,8 @@ export function DeleteTask(arg1:number):Promise<void>;
 
 export function GetActiveCount():Promise<number>;
 
+export function GetActiveProjectChat():Promise<pkg.ProjectChat>;
+
 export function GetChatMessages(arg1:number):Promise<Array<pkg.ChatMessage>>;
 
 export function GetChatTimeline(arg1:number):Promise<Array<pkg.ChatTimelineEntry>>;
@@ -25,6 +27,8 @@ export function GetDBStatus():Promise<pkg.DBStatus>;
 export function GetDesignDoc():Promise<string>;
 
 export function GetDesignHistory():Promise<Array<pkg.DesignVersion>>;
+
+export function GetProjectChatMessages(arg1:number):Promise<Array<pkg.ProjectChatMessage>>;
 
 export function GetSettings():Promise<Record<string, string>>;
 
@@ -40,6 +44,12 @@ export function SaveSettings(arg1:Record<string, string>):Promise<void>;
 
 export function SendChatMessage(arg1:number,arg2:string):Promise<void>;
 
+export function SendProjectChatMessage(arg1:number,arg2:string):Promise<void>;
+
+export function SetRepoForTest(arg1:pkg.Repository):Promise<void>;
+
 export function SetWorkDir(arg1:string):Promise<void>;
+
+export function StartProjectChat():Promise<pkg.ProjectChat>;
 
 export function UpdateTask(arg1:number,arg2:string,arg3:string,arg4:string):Promise<void>;

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
-import { LoadTasks, GetWorkDir, GetActiveCount, GetDBStatus, GetChatTimeline, GetChatMessages, SendChatMessage } from '../wailsjs/go/pkg/App'
+import { LoadTasks, GetWorkDir, GetActiveCount, GetDBStatus, GetChatTimeline, GetChatMessages, SendChatMessage, GetActiveProjectChat, StartProjectChat, GetProjectChatMessages, SendProjectChatMessage } from '../wailsjs/go/pkg/App'
 import KanbanBoard from './components/KanbanBoard.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import LogViewer from './components/LogViewer.vue'
@@ -56,7 +56,70 @@ const chatStreaming = ref(false)
 const chatStreamBuffer = ref('')
 const chatError = ref('')
 
+// Project chat state
+const projectChatOpen = ref(false)
+const projectChatId = ref(null)
+const projectChatMessages = ref([])
+const projectChatStreaming = ref(false)
+const projectChatStreamBuffer = ref('')
+const projectChatError = ref('')
+
+async function openProjectChat() {
+  projectChatError.value = ''
+  projectChatStreamBuffer.value = ''
+  projectChatStreaming.value = false
+
+  // Close task chat if open.
+  chatOpen.value = false
+
+  try {
+    let chat = await GetActiveProjectChat()
+    if (!chat || chat.id === 0) {
+      chat = await StartProjectChat()
+    }
+    projectChatId.value = chat.id
+    projectChatMessages.value = await GetProjectChatMessages(chat.id)
+  } catch (e) {
+    projectChatError.value = String(e)
+    projectChatMessages.value = []
+  }
+  projectChatOpen.value = true
+}
+
+function closeProjectChat() {
+  projectChatOpen.value = false
+}
+
+async function startNewProjectChat() {
+  projectChatError.value = ''
+  projectChatStreamBuffer.value = ''
+  projectChatStreaming.value = false
+  try {
+    const chat = await StartProjectChat()
+    projectChatId.value = chat.id
+    projectChatMessages.value = []
+  } catch (e) {
+    projectChatError.value = String(e)
+  }
+}
+
+async function sendProjectChatMessage(text) {
+  if (!projectChatId.value || projectChatStreaming.value) return
+  projectChatError.value = ''
+  projectChatStreaming.value = true
+  projectChatStreamBuffer.value = ''
+  try {
+    await SendProjectChatMessage(projectChatId.value, text)
+  } catch (e) {
+    projectChatError.value = String(e)
+    projectChatStreaming.value = false
+  }
+}
+
 async function openChat(taskID) {
+  // Close project chat if open (mutual exclusivity).
+  projectChatOpen.value = false
+
   chatError.value = ''
   chatStreamBuffer.value = ''
   chatStreaming.value = false
@@ -203,6 +266,35 @@ onMounted(async () => {
       chatStreamBuffer.value = ''
     }
   })
+
+  // Project chat events
+  EventsOn('project-chat:message', (msg) => {
+    if (msg.chat_id === projectChatId.value) {
+      projectChatMessages.value.push(msg)
+    }
+  })
+
+  EventsOn('project-chat:stream', (payload) => {
+    if (payload.chat_id === projectChatId.value) {
+      projectChatStreamBuffer.value += payload.chunk
+    }
+  })
+
+  EventsOn('project-chat:done', async (payload) => {
+    if (payload.chat_id === projectChatId.value) {
+      projectChatStreaming.value = false
+      projectChatStreamBuffer.value = ''
+      projectChatMessages.value = await GetProjectChatMessages(projectChatId.value)
+    }
+  })
+
+  EventsOn('project-chat:error', (payload) => {
+    if (payload.chat_id === projectChatId.value) {
+      projectChatError.value = payload.error
+      projectChatStreaming.value = false
+      projectChatStreamBuffer.value = ''
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -214,6 +306,10 @@ onUnmounted(() => {
   EventsOff('chat:stream')
   EventsOff('chat:done')
   EventsOff('chat:error')
+  EventsOff('project-chat:message')
+  EventsOff('project-chat:stream')
+  EventsOff('project-chat:done')
+  EventsOff('project-chat:error')
   document.removeEventListener('mousemove', onResize)
   document.removeEventListener('mouseup', stopResize)
 })
@@ -257,6 +353,13 @@ onUnmounted(() => {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
             </svg>
           </button>
+          <button @click="projectChatOpen ? startNewProjectChat() : openProjectChat()"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
+            New Chat
+          </button>
           <button @click="showAddModal = true"
                   class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -274,7 +377,7 @@ onUnmounted(() => {
                      class="flex-1 min-h-0" />
 
         <!-- Resize Handle -->
-        <div v-if="chatOpen"
+        <div v-if="chatOpen || projectChatOpen"
              class="w-1 flex-shrink-0 cursor-col-resize group relative hover:w-1.5 transition-all"
              @mousedown="startResize">
           <div class="absolute inset-y-0 -left-1 -right-1"></div>
@@ -282,8 +385,21 @@ onUnmounted(() => {
                :class="{ 'bg-violet-500/70': isResizing }"></div>
         </div>
 
-        <!-- Chat Panel -->
-        <div v-if="chatOpen" class="flex-shrink-0" :style="chatWidthStyle">
+        <!-- Project Chat Panel -->
+        <div v-if="projectChatOpen" class="flex-shrink-0" :style="chatWidthStyle">
+          <ChatPanel :task-id="null"
+                     :task-title="'Project Chat'"
+                     :messages="projectChatMessages"
+                     :timeline="[]"
+                     :streaming="projectChatStreaming"
+                     :stream-buffer="projectChatStreamBuffer"
+                     :error="projectChatError"
+                     @send="sendProjectChatMessage"
+                     @close="closeProjectChat" />
+        </div>
+
+        <!-- Task Chat Panel -->
+        <div v-else-if="chatOpen" class="flex-shrink-0" :style="chatWidthStyle">
           <ChatPanel :task-id="chatTaskId"
                      :task-title="chatTaskTitle"
                      :messages="chatMessages"
