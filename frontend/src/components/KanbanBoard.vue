@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import TaskCard from './TaskCard.vue'
 import TaskModal from './TaskModal.vue'
 
@@ -8,6 +8,13 @@ const emit = defineEmits(['refresh', 'open-chat'])
 
 const selectedTask = ref(null)
 const showArchive = ref(false)
+
+watch(() => props.tasks, (newTasks) => {
+  if (selectedTask.value) {
+    const updated = (newTasks || []).find(t => t.id === selectedTask.value.id)
+    selectedTask.value = updated || null
+  }
+})
 
 const columns = [
   { key: 'prompt',   label: 'Prompt',   color: 'from-violet-500/20 to-violet-600/10', badge: 'bg-violet-500/30 text-violet-300', dot: 'bg-violet-400' },
