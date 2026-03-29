@@ -50,12 +50,12 @@ export function GetDesignDoc() {
   return window['go']['pkg']['App']['GetDesignDoc']();
 }
 
-export function GetProjectChatMessages(arg1) {
-  return window['go']['pkg']['App']['GetProjectChatMessages'](arg1);
-}
-
 export function GetDesignHistory() {
   return window['go']['pkg']['App']['GetDesignHistory']();
+}
+
+export function GetProjectChatMessages(arg1) {
+  return window['go']['pkg']['App']['GetProjectChatMessages'](arg1);
 }
 
 export function GetSettings() {
@@ -90,12 +90,16 @@ export function SendProjectChatMessage(arg1, arg2) {
   return window['go']['pkg']['App']['SendProjectChatMessage'](arg1, arg2);
 }
 
-export function StartProjectChat() {
-  return window['go']['pkg']['App']['StartProjectChat']();
+export function SetRepoForTest(arg1) {
+  return window['go']['pkg']['App']['SetRepoForTest'](arg1);
 }
 
 export function SetWorkDir(arg1) {
   return window['go']['pkg']['App']['SetWorkDir'](arg1);
+}
+
+export function StartProjectChat() {
+  return window['go']['pkg']['App']['StartProjectChat']();
 }
 
 export function UpdateTask(arg1, arg2, arg3, arg4) {

@@ -16,7 +16,7 @@ export function DeleteTask(arg1:number):Promise<void>;
 
 export function GetActiveCount():Promise<number>;
 
-export function GetActiveProjectChat():Promise<pkg.ProjectChat | null>;
+export function GetActiveProjectChat():Promise<pkg.ProjectChat>;
 
 export function GetChatMessages(arg1:number):Promise<Array<pkg.ChatMessage>>;
 
@@ -46,8 +46,10 @@ export function SendChatMessage(arg1:number,arg2:string):Promise<void>;
 
 export function SendProjectChatMessage(arg1:number,arg2:string):Promise<void>;
 
-export function StartProjectChat():Promise<pkg.ProjectChat>;
+export function SetRepoForTest(arg1:pkg.Repository):Promise<void>;
 
 export function SetWorkDir(arg1:string):Promise<void>;
+
+export function StartProjectChat():Promise<pkg.ProjectChat>;
 
 export function UpdateTask(arg1:number,arg2:string,arg3:string,arg4:string):Promise<void>;

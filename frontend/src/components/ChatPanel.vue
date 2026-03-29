@@ -38,7 +38,17 @@ const actorLabel = {
 }
 
 const displayTimeline = computed(() => {
-  const entries = [...(props.timeline || [])]
+  let entries = [...(props.timeline || [])]
+
+  // In project mode, timeline is empty — build entries from messages instead.
+  if (isProjectMode.value && props.messages && props.messages.length > 0) {
+    entries = props.messages.map(msg => ({
+      type: 'message',
+      message: msg,
+      timestamp: msg.created_at || ''
+    }))
+  }
+
   // Append streaming message as a synthetic timeline entry
   if (props.streaming && props.streamBuffer) {
     entries.push({
