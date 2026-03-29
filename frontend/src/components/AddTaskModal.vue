@@ -41,11 +41,11 @@ async function submit() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+  <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/60 backdrop-blur-sm"
        @click.self="emit('close')">
-    <div class="w-full max-w-lg rounded-2xl bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50">
+    <div class="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50 max-h-[90vh] sm:max-h-none overflow-y-auto">
       <!-- Header -->
-      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-700/50">
+      <div class="flex items-center justify-between px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-slate-700/50">
         <h2 class="text-sm font-semibold text-slate-100">New Task</h2>
         <button @click="emit('close')" class="text-slate-500 hover:text-slate-300 transition-colors">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,7 +55,7 @@ async function submit() {
       </div>
 
       <!-- Form -->
-      <div class="px-6 py-5 space-y-4">
+      <div class="px-4 sm:px-6 py-4 sm:py-5 space-y-4">
         <!-- Starting Lane Radio Group -->
         <div>
           <label class="block text-[10px] uppercase tracking-widest font-semibold text-slate-500 mb-1.5">
@@ -105,7 +105,7 @@ async function submit() {
       </div>
 
       <!-- Footer -->
-      <div class="flex items-center justify-end gap-3 px-6 pb-5">
+      <div class="flex items-center justify-end gap-3 px-4 sm:px-6 pb-4 sm:pb-5">
         <button @click="emit('close')"
                 class="px-4 py-2 text-xs rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
           Cancel

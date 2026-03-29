@@ -18,11 +18,12 @@ watch(() => props.logs.length, async () => {
 
 function startResize(e) {
   e.preventDefault()
-  const startY = e.clientY
+  const startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY
   const startH = panelHeight.value
 
   function onMove(ev) {
-    const delta = startY - ev.clientY
+    const clientY = ev.type === 'touchmove' ? ev.touches[0].clientY : ev.clientY
+    const delta = startY - clientY
     const maxH = window.innerHeight * MAX_HEIGHT_RATIO
     panelHeight.value = Math.min(maxH, Math.max(MIN_HEIGHT, startH + delta))
   }
@@ -30,10 +31,14 @@ function startResize(e) {
   function onUp() {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
+    window.removeEventListener('touchmove', onMove)
+    window.removeEventListener('touchend', onUp)
   }
 
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
+  window.addEventListener('touchmove', onMove, { passive: true })
+  window.addEventListener('touchend', onUp)
 }
 
 function lineColor(line) {
@@ -57,8 +62,9 @@ function lineColor(line) {
   >
     <!-- Resize handle -->
     <div
-      class="h-1 w-full cursor-ns-resize hover:bg-violet-500/40 transition-colors flex-shrink-0"
+      class="h-2 md:h-1 w-full cursor-ns-resize hover:bg-violet-500/40 active:bg-violet-500/40 transition-colors flex-shrink-0 touch-none"
       @mousedown="startResize"
+      @touchstart="startResize"
     />
 
     <!-- Log header bar -->
@@ -80,7 +86,7 @@ function lineColor(line) {
 
     <!-- Log lines -->
     <div v-if="!collapsed" ref="container"
-         class="flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed px-4 pb-2">
+         class="flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed px-2 md:px-4 pb-2">
       <div v-if="logs.length === 0" class="text-slate-700 py-1">No log output yet…</div>
       <div v-for="(line, i) in logs" :key="i" :class="lineColor(line)">{{ line }}</div>
     </div>

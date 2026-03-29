@@ -44,7 +44,7 @@ function onModalClose() {
 <template>
   <div class="flex flex-col h-full">
     <!-- Archive toggle -->
-    <div class="flex items-center justify-end px-4 pt-2 select-none">
+    <div class="flex items-center justify-end px-2 md:px-4 pt-2 select-none">
       <button @click="showArchive = !showArchive"
               class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-colors"
               :class="showArchive ? 'bg-slate-600 text-slate-200' : 'bg-slate-800 text-slate-400 hover:text-slate-300'">
@@ -60,9 +60,9 @@ function onModalClose() {
       </button>
     </div>
 
-    <div class="flex gap-3 px-4 py-4 overflow-x-auto flex-1">
+    <div class="flex gap-2 md:gap-3 px-2 md:px-4 py-2 md:py-4 overflow-x-auto flex-1 snap-x snap-mandatory md:snap-none scroll-pl-2">
       <div v-for="col in visibleColumns" :key="col.key"
-           class="flex flex-col flex-shrink-0 w-52 rounded-xl bg-slate-800/50 border border-slate-700/40 backdrop-blur-sm">
+           class="flex flex-col flex-shrink-0 w-44 md:w-52 rounded-xl bg-slate-800/50 border border-slate-700/40 backdrop-blur-sm snap-start">
         <!-- Column Header -->
         <div class="flex items-center gap-2 px-3 pt-3 pb-2.5 select-none">
           <div class="w-2 h-2 rounded-full" :class="col.dot"></div>

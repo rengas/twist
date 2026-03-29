@@ -165,14 +165,14 @@ function copyField(value, feedbackRef) {
 
 <template>
   <!-- Backdrop -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+  <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/60 backdrop-blur-sm"
        @click.self="emit('close')">
     <!-- Modal -->
-    <div class="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl
+    <div class="relative w-full sm:max-w-2xl max-h-[95vh] sm:max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl
                 bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50">
 
       <!-- Header -->
-      <div class="flex items-start gap-3 px-6 pt-5 pb-4 border-b border-slate-700/50">
+      <div class="flex items-start gap-3 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-slate-700/50">
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 mb-1 select-none">
             <span class="text-[10px] font-mono text-slate-500">#{{ task.id }}</span>
@@ -186,12 +186,12 @@ function copyField(value, feedbackRef) {
           <!-- Title: editable or read-only -->
           <input v-if="editing" v-model="editTitle" type="text"
                  class="w-full text-base font-semibold text-slate-100 leading-snug bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-1.5 focus:outline-none focus:border-violet-500" />
-          <h2 v-else class="text-base font-semibold text-slate-100 leading-snug">{{ task.title }}</h2>
+          <h2 v-else class="text-base font-semibold text-slate-100 leading-snug line-clamp-3 sm:line-clamp-none">{{ task.title }}</h2>
           <!-- Branch with copy icon -->
-          <div v-if="task.branch" class="flex items-center gap-1.5 mt-0.5">
-            <p class="text-xs text-sky-400 font-mono">{{ task.branch }}</p>
+          <div v-if="task.branch" class="flex items-center gap-1.5 mt-0.5 min-w-0">
+            <p class="text-xs text-sky-400 font-mono truncate">{{ task.branch }}</p>
             <button @click="copyField(task.branch, copyBranchFeedback)"
-                    class="text-slate-500 hover:text-slate-300 transition-colors select-none flex-shrink-0"
+                    class="p-1 -m-0.5 text-slate-500 hover:text-slate-300 transition-colors select-none flex-shrink-0"
                     :title="copyBranchFeedback ? 'Copied!' : 'Copy branch'">
               <svg v-if="!copyBranchFeedback" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/>
@@ -203,14 +203,14 @@ function copyField(value, feedbackRef) {
             </button>
           </div>
           <!-- PR URL with copy icon -->
-          <div v-if="task.pr_url" class="flex items-center gap-1.5 mt-0.5">
-            <span class="text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
+          <div v-if="task.pr_url" class="flex items-center gap-1.5 mt-0.5 min-w-0">
+            <span class="text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer truncate"
                   @click="openPR">
               {{ task.pr_url }}
               <span class="text-[10px] no-underline"> ↗</span>
             </span>
             <button @click="copyField(task.pr_url, copyPRFeedback)"
-                    class="text-slate-500 hover:text-slate-300 transition-colors select-none flex-shrink-0"
+                    class="p-1 -m-0.5 text-slate-500 hover:text-slate-300 transition-colors select-none flex-shrink-0"
                     :title="copyPRFeedback ? 'Copied!' : 'Copy PR URL'">
               <svg v-if="!copyPRFeedback" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/>
@@ -257,7 +257,7 @@ function copyField(value, feedbackRef) {
       </div>
 
       <!-- Scrollable content -->
-      <div class="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+      <div class="overflow-y-auto flex-1 px-4 sm:px-6 py-3 sm:py-4 space-y-4">
         <!-- Archived notice -->
         <div v-if="isArchived"
              class="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-700/50 border border-slate-600/50 text-sm text-slate-300">
@@ -303,7 +303,7 @@ function copyField(value, feedbackRef) {
             class="spec-content"
             :class="{ 'spec-content-expanded': isSpecExpanded }"
           >
-            <div class="prose text-sm bg-slate-900/50 rounded-lg px-4 py-3" v-html="renderedSpec"></div>
+            <div class="prose prose-sm text-sm bg-slate-900/50 rounded-lg px-3 sm:px-4 py-3 max-w-full overflow-x-auto" v-html="renderedSpec"></div>
           </div>
         </div>
         <div v-else-if="task.status !== 'prompt'" class="text-sm text-slate-600 italic">
@@ -312,7 +312,7 @@ function copyField(value, feedbackRef) {
       </div>
 
       <!-- Footer actions -->
-      <div class="flex items-center justify-between px-6 py-4 border-t border-slate-700/50 select-none">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-700/50 select-none">
         <div class="flex items-center gap-3">
           <button @click="deleteTask" :disabled="loading || editing"
                   class="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
@@ -325,8 +325,8 @@ function copyField(value, feedbackRef) {
           </button>
         </div>
 
-        <div class="flex items-center gap-3">
-          <p v-if="error" class="text-xs text-red-400">{{ error }}</p>
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+          <p v-if="error" class="text-xs text-red-400 w-full sm:w-auto">{{ error }}</p>
 
           <!-- Save / Cancel buttons in edit mode -->
           <template v-if="editing">

@@ -126,7 +126,7 @@ watch(() => props.streamBuffer, scrollToBottom)
     </div>
 
     <!-- Timeline -->
-    <div ref="messagesContainer" class="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+    <div ref="messagesContainer" class="flex-1 overflow-y-auto px-2 md:px-3 py-2 md:py-3 space-y-2 md:space-y-3">
       <div v-if="displayTimeline.length === 0" class="flex items-center justify-center h-full">
         <p class="text-xs text-slate-600">{{ emptyStateText }}</p>
       </div>
@@ -174,12 +174,12 @@ watch(() => props.streamBuffer, scrollToBottom)
         <div v-else-if="entry.type === 'message' && entry.message"
              :class="entry.message.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
           <div :class="[
-            'max-w-[min(85%,40rem)] rounded-lg px-3 py-2 text-sm',
+            'max-w-[min(92%,40rem)] md:max-w-[min(85%,40rem)] rounded-lg px-3 py-2 text-sm',
             entry.message.role === 'user'
               ? 'bg-sky-600/30 text-sky-100'
               : 'bg-slate-800 text-slate-300 border border-slate-700/50'
           ]">
-            <div v-if="entry.message.role === 'assistant'" class="prose prose-sm prose-invert max-w-none" v-html="renderMarkdown(entry.message.content)"></div>
+            <div v-if="entry.message.role === 'assistant'" class="prose prose-sm prose-invert max-w-full overflow-x-auto" v-html="renderMarkdown(entry.message.content)"></div>
             <p v-else class="whitespace-pre-wrap">{{ entry.message.content }}</p>
           </div>
         </div>
@@ -205,16 +205,17 @@ watch(() => props.streamBuffer, scrollToBottom)
     </div>
 
     <!-- Input -->
-    <div class="flex-shrink-0 border-t border-slate-700/50 px-3 py-3">
+    <div class="flex-shrink-0 border-t border-slate-700/50 px-2 md:px-3 py-2 md:py-3">
       <div class="flex gap-2">
         <textarea v-model="input"
                   @keydown="onKeydown"
                   :disabled="streaming"
                   :placeholder="inputPlaceholder"
-                  rows="4"
+                  rows="2"
                   class="flex-1 resize-none rounded-lg bg-slate-800 border border-slate-700/50 px-3 py-2
                          text-sm text-slate-200 placeholder-slate-600
-                         focus:outline-none focus:border-slate-500 disabled:opacity-50"
+                         focus:outline-none focus:border-slate-500 disabled:opacity-50
+                         chat-textarea"
         ></textarea>
         <button @click="send"
                 :disabled="streaming || !input.trim()"

@@ -48,37 +48,37 @@ async function restore() {
               hover:-translate-y-0.5 active:translate-y-0">
 
     <!-- Title -->
-    <p class="text-xs font-semibold text-slate-200 leading-snug mb-1.5 line-clamp-2">{{ task.title }}</p>
+    <p class="text-sm md:text-xs font-semibold text-slate-200 leading-snug mb-1.5 line-clamp-2">{{ task.title }}</p>
 
     <!-- Preview -->
-    <p class="text-[10px] text-slate-500 leading-relaxed line-clamp-2 mb-2">{{ preview() }}</p>
+    <p class="text-xs md:text-[10px] text-slate-500 leading-relaxed line-clamp-2 mb-2">{{ preview() }}</p>
 
     <!-- Footer -->
     <div class="flex items-center justify-between mt-auto">
       <div class="flex items-center gap-1.5">
         <span class="text-[10px] text-slate-600 font-mono">#{{ task.id }}</span>
         <button @click.stop="emit('open-chat', task.id)"
-                class="p-0.5 rounded text-slate-600 hover:text-sky-400 transition-colors"
+                class="p-1.5 md:p-0.5 -m-1 md:m-0 rounded text-slate-600 hover:text-sky-400 transition-colors"
                 title="Chat with Claude">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 md:w-3 md:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
           </svg>
         </button>
         <!-- Archive button for non-archived tasks -->
         <button v-if="!isArchived" @click.stop="archive"
-                class="p-0.5 rounded text-slate-600 hover:text-slate-400 transition-colors"
+                class="p-1.5 md:p-0.5 -m-1 md:m-0 rounded text-slate-600 hover:text-slate-400 transition-colors"
                 title="Archive task">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 md:w-3 md:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
           </svg>
         </button>
         <!-- Restore button for archived tasks -->
         <button v-if="isArchived" @click.stop="restore"
-                class="p-0.5 rounded text-slate-600 hover:text-emerald-400 transition-colors"
+                class="p-1.5 md:p-0.5 -m-1 md:m-0 rounded text-slate-600 hover:text-emerald-400 transition-colors"
                 title="Restore to Prompt">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 md:w-3 md:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M3 10h10a5 5 0 010 10H9m4-10l-4-4m4 4l-4 4"/>
           </svg>

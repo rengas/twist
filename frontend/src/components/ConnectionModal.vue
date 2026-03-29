@@ -56,11 +56,11 @@ async function connect() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900">
-    <div class="w-full max-w-lg rounded-2xl bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50">
+  <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 bg-slate-900">
+    <div class="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl bg-slate-800 border border-slate-700/60 shadow-2xl shadow-black/50">
 
       <!-- Header -->
-      <div class="flex flex-col items-center pt-8 pb-4 px-6">
+      <div class="flex flex-col items-center pt-6 sm:pt-8 pb-3 sm:pb-4 px-4 sm:px-6">
         <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-lg font-bold mb-4">
           T
         </div>
@@ -71,7 +71,7 @@ async function connect() {
       </div>
 
       <!-- Body -->
-      <div class="px-6 py-4 space-y-4">
+      <div class="px-4 sm:px-6 py-3 sm:py-4 space-y-4">
         <div class="space-y-1.5">
           <label class="block text-xs font-medium text-slate-400">PostgreSQL URL</label>
           <input v-model="dbUrl"
@@ -105,7 +105,7 @@ async function connect() {
       </div>
 
       <!-- Footer -->
-      <div class="flex items-center justify-end px-6 pb-6">
+      <div class="flex items-center justify-end px-4 sm:px-6 pb-4 sm:pb-6">
         <button @click="connect" :disabled="connecting || migrating"
                 class="flex items-center gap-2 px-5 py-2.5 text-sm rounded-lg font-semibold
                        bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50">

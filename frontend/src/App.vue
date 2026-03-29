@@ -28,12 +28,15 @@ function startResize(e) {
   e.preventDefault()
   document.addEventListener('mousemove', onResize)
   document.addEventListener('mouseup', stopResize)
+  document.addEventListener('touchmove', onResize, { passive: true })
+  document.addEventListener('touchend', stopResize)
 }
 
 function onResize(e) {
   if (!isResizing.value || !containerRef.value) return
+  const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX
   const rect = containerRef.value.getBoundingClientRect()
-  const offsetFromRight = rect.right - e.clientX
+  const offsetFromRight = rect.right - clientX
   const percent = (offsetFromRight / rect.width) * 100
   chatWidthPercent.value = Math.min(70, Math.max(20, percent))
 }
@@ -42,6 +45,8 @@ function stopResize() {
   isResizing.value = false
   document.removeEventListener('mousemove', onResize)
   document.removeEventListener('mouseup', stopResize)
+  document.removeEventListener('touchmove', onResize)
+  document.removeEventListener('touchend', stopResize)
 }
 
 const chatWidthStyle = computed(() => `width: ${chatWidthPercent.value}%`)
@@ -312,6 +317,8 @@ onUnmounted(() => {
   EventsOff('project-chat:error')
   document.removeEventListener('mousemove', onResize)
   document.removeEventListener('mouseup', stopResize)
+  document.removeEventListener('touchmove', onResize)
+  document.removeEventListener('touchend', stopResize)
 })
 </script>
 
@@ -321,29 +328,29 @@ onUnmounted(() => {
 
   <!-- Main app — shown only when connected -->
   <template v-else>
-    <div class="flex flex-col h-screen bg-slate-900 text-slate-200">
+    <div class="flex flex-col h-[100dvh] bg-slate-900 text-slate-200">
       <!-- Header -->
-      <header class="grid grid-cols-3 items-center px-6 py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0 select-none"
+      <header class="grid grid-cols-2 md:grid-cols-3 items-center px-3 md:px-6 py-2 md:py-3 bg-slate-900 border-b border-slate-700/50 flex-shrink-0 select-none"
               style="--wails-draggable: drag">
-        <!-- Left spacer -->
-        <div></div>
+        <!-- Left spacer (hidden on mobile, logo takes its place) -->
+        <div class="hidden md:block"></div>
 
-        <!-- Center: Logo -->
-        <div class="flex items-center justify-center gap-3">
-          <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-xs font-bold">
+        <!-- Logo + Status -->
+        <div class="flex items-center md:justify-center gap-2 md:gap-3">
+          <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
             T
           </div>
-          <span class="font-semibold text-slate-100 text-sm tracking-wide">twist</span>
+          <span class="font-semibold text-slate-100 text-sm tracking-wide hidden sm:inline">twist</span>
           <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs"
                :class="activeCount > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'">
             <span class="w-1.5 h-1.5 rounded-full inline-block"
                   :class="activeCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'"></span>
-            {{ activeCount > 0 ? `${activeCount} task${activeCount > 1 ? 's' : ''} running` : 'Idle' }}
+            <span class="hidden sm:inline">{{ activeCount > 0 ? `${activeCount} task${activeCount > 1 ? 's' : ''} running` : 'Idle' }}</span>
           </div>
         </div>
 
         <!-- Right: Actions -->
-        <div class="flex items-center justify-end gap-3" style="--wails-draggable: no-drag">
+        <div class="flex items-center justify-end gap-1.5 md:gap-3" style="--wails-draggable: no-drag">
           <button @click="showSettings = true"
                   class="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
                   title="Settings">
@@ -354,31 +361,33 @@ onUnmounted(() => {
             </svg>
           </button>
           <button @click="projectChatOpen ? startNewProjectChat() : openProjectChat()"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium transition-colors">
+                  class="flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium transition-colors"
+                  title="New Chat">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
             </svg>
-            New Chat
+            <span class="hidden sm:inline">New Chat</span>
           </button>
           <button @click="showAddModal = true"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors">
+                  class="flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors"
+                  title="New Task">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
             </svg>
-            New Task
+            <span class="hidden sm:inline">New Task</span>
           </button>
         </div>
       </header>
 
       <!-- Kanban + Chat -->
-      <div ref="containerRef" class="flex flex-1 min-h-0" :class="{ 'select-none': isResizing }">
+      <div ref="containerRef" class="flex flex-1 min-h-0 relative" :class="{ 'select-none': isResizing }">
         <!-- Kanban Board -->
         <KanbanBoard :tasks="tasks" @refresh="refresh" @open-chat="openChat"
                      class="flex-1 min-h-0" />
 
-        <!-- Resize Handle -->
+        <!-- Resize Handle (hidden on narrow screens where chat overlays) -->
         <div v-if="chatOpen || projectChatOpen"
-             class="w-1 flex-shrink-0 cursor-col-resize group relative hover:w-1.5 transition-all"
+             class="hidden md:block w-1 flex-shrink-0 cursor-col-resize group relative hover:w-1.5 transition-all"
              @mousedown="startResize">
           <div class="absolute inset-y-0 -left-1 -right-1"></div>
           <div class="h-full w-full bg-slate-700/50 group-hover:bg-violet-500/70 transition-colors"
@@ -386,7 +395,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Project Chat Panel -->
-        <div v-if="projectChatOpen" class="flex-shrink-0" :style="chatWidthStyle">
+        <div v-if="projectChatOpen" class="flex-shrink-0 chat-panel-mobile" :style="chatWidthStyle">
           <ChatPanel :task-id="null"
                      :task-title="'Project Chat'"
                      :messages="projectChatMessages"
@@ -399,7 +408,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Task Chat Panel -->
-        <div v-else-if="chatOpen" class="flex-shrink-0" :style="chatWidthStyle">
+        <div v-else-if="chatOpen" class="flex-shrink-0 chat-panel-mobile" :style="chatWidthStyle">
           <ChatPanel :task-id="chatTaskId"
                      :task-title="chatTaskTitle"
                      :messages="chatMessages"

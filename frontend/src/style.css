@@ -18,6 +18,7 @@ body {
 
 #app {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -36,6 +37,23 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
+}
+
+/* Chat panel: full-screen overlay on narrow windows */
+@media (max-width: 767px) {
+  .chat-panel-mobile {
+    width: 100% !important;
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+  }
+}
+
+/* Chat textarea: taller on desktop */
+@media (min-width: 768px) {
+  .chat-textarea {
+    min-height: 6rem; /* ~4 rows on desktop */
+  }
 }
 
 /* Prose styles for markdown */
@@ -62,6 +80,7 @@ body {
   border-radius: 3px;
   font-size: 0.85em;
   color: #7dd3fc;
+  word-break: break-word;
 }
 .prose pre {
   background: #1e293b;
@@ -69,10 +88,12 @@ body {
   border-radius: 6px;
   overflow-x: auto;
   margin: 0.75rem 0;
+  max-width: 100%;
 }
 .prose pre code {
   background: none;
   padding: 0;
+  word-break: normal;
 }
 .prose strong { color: #f1f5f9; }
 .prose hr { border-color: #334155; margin: 1rem 0; }
